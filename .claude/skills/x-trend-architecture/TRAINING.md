@@ -24,12 +24,18 @@ def sharpe_loss(positions, returns, volatility, target_vol=0.15):
     avoid NaN when N=1 (unbiased estimator divides by N-1, which is 0 when N=1).
 
     Recommended: Accumulate 32+ samples per batch for stable gradient estimates.
+
+    Note: Uses Python float for annualization factor to avoid device mismatch
+    when training on GPU. torch.sqrt(252.0) ≈ 15.8745.
     """
     scaled_returns = (target_vol / volatility) * returns * positions
 
     # Use unbiased=False to avoid NaN with small batches (N=1)
     # This uses N as divisor instead of N-1
-    return -torch.sqrt(torch.tensor(252.0)) * scaled_returns.mean() / scaled_returns.std(unbiased=False)
+    # Use plain Python float (252**0.5) instead of torch.tensor to avoid CPU tensor on GPU
+    import math
+    annualization_factor = math.sqrt(252.0)  # ≈ 15.8745
+    return -annualization_factor * scaled_returns.mean() / scaled_returns.std(unbiased=False)
 ```
 
 ### Gaussian MLE Loss
@@ -104,7 +110,8 @@ def joint_loss(positions, forecast, returns, volatility,
 
 ```python
 def train_xtrend(model, train_assets, val_assets, epochs=100,
-                context_size=20, seq_len=126, batch_size=32):
+                context_size=20, seq_len=126, batch_size=32,
+                episodes_per_epoch=1000):
     """
     Train X-Trend with episodic learning.
 
@@ -117,18 +124,34 @@ def train_xtrend(model, train_assets, val_assets, epochs=100,
 
     IMPORTANT: Accumulate multiple episodes (batch_size=32+) before computing
     Sharpe loss to avoid NaN from std() with N=1. This ensures stable gradients.
+
+    Args:
+        model: XTrendModel instance
+        train_assets: List of training assets with features/returns
+        val_assets: List of validation assets
+        epochs: Number of training epochs
+        context_size: Number of context sequences per episode
+        seq_len: Target sequence length (default 126 = 6 months)
+        batch_size: Episodes per batch (default 32, minimum 32 for stable Sharpe)
+        episodes_per_epoch: Total episodes per epoch (default 1000)
     """
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
     for epoch in range(epochs):
-        for batch_idx in range(1000 // batch_size):  # Batches per epoch
+        # Use episodes_per_epoch from config, handle remainder
+        num_batches = (episodes_per_epoch + batch_size - 1) // batch_size
+
+        for batch_idx in range(num_batches):
             # Accumulate multiple episodes per batch
             batch_positions = []
             batch_forecasts = []
             batch_returns = []
             batch_volatilities = []
 
-            for _ in range(batch_size):
+            # Last batch may be smaller if episodes_per_epoch not divisible by batch_size
+            current_batch_size = min(batch_size, episodes_per_epoch - batch_idx * batch_size)
+
+            for _ in range(current_batch_size):
                 # Sample target
                 target_asset = random.choice(train_assets)
                 target_time = random.randint(seq_len, len(target_asset.data))
@@ -157,12 +180,23 @@ def train_xtrend(model, train_assets, val_assets, epochs=100,
                 batch_returns.append(target_returns)
                 batch_volatilities.append(target_asset.volatility[target_time])
 
+            # Concatenate batched tensors
+            batched_positions = torch.cat(batch_positions)
+            batched_forecasts = torch.stack(batch_forecasts)
+
+            # CRITICAL: Create returns/volatility tensors on same device as model outputs
+            # to avoid "Expected all tensors to be on the same device" error on GPU
+            device = batched_positions.device
+            dtype = batched_positions.dtype
+            batched_returns = torch.tensor(batch_returns, device=device, dtype=dtype)
+            batched_volatilities = torch.tensor(batch_volatilities, device=device, dtype=dtype)
+
             # Compute loss on accumulated batch (avoids NaN from std with N=1)
             loss = joint_loss(
-                torch.cat(batch_positions),
-                torch.stack(batch_forecasts),
-                torch.tensor(batch_returns),
-                torch.tensor(batch_volatilities),
+                batched_positions,
+                batched_forecasts,
+                batched_returns,
+                batched_volatilities,
                 alpha=1.0,
                 forecast_type='gaussian'
             )
@@ -213,9 +247,11 @@ def validate(model, val_assets, context_size=20):
                 ret = position[:, -1, 0] * asset.returns[t]
                 all_returns.append(ret.item())
 
-    # Calculate Sharpe
+    # Calculate Sharpe (use Python float to avoid CPU tensor issues)
+    import math
     returns_tensor = torch.tensor(all_returns)
-    sharpe = torch.sqrt(torch.tensor(252.0)) * returns_tensor.mean() / returns_tensor.std()
+    annualization_factor = math.sqrt(252.0)  # ≈ 15.8745
+    sharpe = annualization_factor * returns_tensor.mean() / returns_tensor.std()
 
     model.train()
     return sharpe.item()

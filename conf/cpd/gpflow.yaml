@@ -1,0 +1,7 @@
+# CPD config (GPflow ChangePoints backend, stub).
+backend: gpflow
+kernel: matern32
+lmax: 63
+nu: 0.95
+lbw: 21
+lmin: 5

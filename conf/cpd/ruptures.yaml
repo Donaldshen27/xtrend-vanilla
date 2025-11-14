@@ -1,0 +1,8 @@
+# CPD config (ruptures backend, stub).
+backend: ruptures
+method: pelt
+model: rbf
+lmax: 63
+nu: 0.95
+lbw: 21
+lmin: 5

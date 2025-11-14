@@ -1,0 +1,3 @@
+# Backtest config (vectorbt, stub).
+sigma_target_annual: 0.15
+costs_bps: 0.0

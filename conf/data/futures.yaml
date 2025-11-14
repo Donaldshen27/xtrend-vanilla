@@ -1,0 +1,5 @@
+# Data config (stub) — choose a source and symbols.
+source: pinnacle_clc  # or nasdaq_quandl, duckdb_parquet
+symbols: ${oc.env:XTREND_SYMBOLS,[]}
+start: 1990-01-01
+end: 2023-12-31

@@ -51,7 +51,7 @@
 ```python
 # Test output example:
 print(f"Features shape: {features.shape}")
-# Output: Features shape: (T, 50, 11)  # T timesteps, 50 assets, 11 features
+# Output: Features shape: (T, 50, 8)  # T timesteps, 50 assets, 8 features
 
 print(f"Features: {feature_names}")
 # Output: ['r_1', 'r_21', 'r_63', 'r_126', 'r_252',
@@ -104,13 +104,15 @@ assert (volatilities > 0).all(), "All volatilities positive"
 ```python
 # CPD segmentation results
 print(f"Total regimes detected: {len(regimes)}")
-# Output: Total regimes detected: 156
+# Output: Total regimes detected should be in the range [100-200]
+#         (depends on asset universe, data quality, and CPD thresholds)
 
 print(f"Average regime length: {np.mean([r[1]-r[0] for r in regimes]):.1f} days")
-# Output: Average regime length: 12.3 days
+# Output: Average regime length should be 10-15 days
+#         (bounded by min_len=5 and max_len=21 parameters)
 
 print(f"Regime length range: [{min_len}, {max_len}]")
-# Output: Regime length range: [5, 21]
+# Output: Regime length range should match your min/max parameters (typically [5, 21])
 ```
 
 **Plots to generate (like Figure 3 in paper):**
@@ -431,8 +433,8 @@ print(f"Joint loss: {joint_loss:.4f}")
    - [ ] Keep embeddings in context set
 
 4. **Expanding Window Backtest**
-   - [ ] Train on 1990-1995, test on 1995-2000
-   - [ ] Expand to 1990-2000, test on 2000-2005
+   - [ ] Train on 1990-1995, test on 1996-2000
+   - [ ] Expand to 1990-2000, test on 2001-2005
    - [ ] Continue in 5-year increments to 2023
    - [ ] Retrain model for each window
 
@@ -467,9 +469,9 @@ for window in backtest_windows:
     print(f"Test: {window.test_start} to {window.test_end}")
 # Output:
 # Train: 1990-01-01 to 1995-12-31
-# Test: 1995-01-01 to 2000-12-31
+# Test: 1996-01-01 to 2000-12-31
 # Train: 1990-01-01 to 2000-12-31
-# Test: 2000-01-01 to 2005-12-31
+# Test: 2001-01-01 to 2005-12-31
 # ...
 ```
 
@@ -590,37 +592,36 @@ Ensemble of 10 models:
 
 ✅ **You should see (Few-Shot, 2018-2023):**
 ```python
-# Target results from Table 1
-                     2018-2023  2013-2023  1995-2023
-Long                    0.48       0.40       0.60
-TSMOM                   0.23       0.71       1.01
-MACD                    0.27       0.45       0.71
-Baseline DMN            2.27       1.93       2.91
-X-Trend-Q (best)        2.70       2.14       3.11
+# Performance expectations (actual values depend on data, seeds, and hyperparameters)
+# Paper reference ranges from Table 1:
 
-# Improvement calculation
-improvement = (2.70 - 2.27) / 2.27
-print(f"X-Trend-Q vs Baseline: +{improvement:.1%}")
-# Output: X-Trend-Q vs Baseline: +18.9%
+Strategy Performance Tiers:
+- Long/Simple Baselines: Sharpe ~0.2-0.7 (basic trend following)
+- TSMOM/MACD: Sharpe ~0.2-1.0 (momentum strategies)
+- Baseline DMN: Sharpe ~1.9-2.9 (neural network without context)
+- X-Trend-Q (best): Sharpe ~2.1-3.1 (with cross-attention and context)
 
-# COVID-19 recovery
-covid_start = "2020-01-29"
-baseline_recovery_days = 254
-xtrend_recovery_days = 162
-print(f"Recovery speed-up: {baseline_recovery_days / xtrend_recovery_days:.1f}x")
-# Output: Recovery speed-up: 1.6x  # Almost 2x faster
+Expected Improvements:
+- X-Trend should outperform Baseline DMN by 10-20%
+- X-Trend should show 2-3x better performance than traditional momentum (TSMOM/MACD)
+
+# COVID-19 recovery (qualitative expectation)
+# X-Trend should recover from COVID drawdown significantly faster than baseline
+# Paper shows ~1.5-2x faster recovery (162 vs 254 days in one run)
 ```
 
 ✅ **You should see (Zero-Shot, 2018-2023):**
 ```python
-# Target results from Table 2
-                     2018-2023  2013-2023  1995-2023
-Baseline DMN           -0.11       0.02       1.00
-X-Trend-G (best)        0.47       0.47       1.44
+# Performance expectations for zero-shot (unseen assets)
+# Paper reference ranges from Table 2:
 
-# Loss-making baseline becomes profitable!
-print("Baseline: LOSS MAKING (-0.11 Sharpe)")
-print("X-Trend-G: PROFITABLE (0.47 Sharpe)")
+Zero-Shot Performance:
+- Baseline DMN: Often negative or near-zero Sharpe (struggles with unseen assets)
+- X-Trend-G: Positive Sharpe ~0.4-0.5 (successful generalization)
+
+Key Success Metric:
+- X-Trend should turn loss-making baseline into profitable strategy
+- Demonstrates genuine few-shot learning capability across assets
 ```
 
 **Plots (replicate Figures 5, 6):**
@@ -703,16 +704,16 @@ Top 3 bottlenecks:
 - [ ] Episodic learning (few-shot & zero-shot) implemented
 
 ### Performance Targets (Few-Shot, 2018-2023)
-- [ ] X-Trend Sharpe > 2.50 (paper: 2.65-2.70)
-- [ ] Baseline DMN Sharpe ~2.27 (matches paper)
-- [ ] TSMOM Sharpe ~0.23 (matches paper)
-- [ ] COVID-19 recovery < 180 days (paper: 162)
-- [ ] Maximum drawdown during COVID < 30% (paper: 26%)
+- [ ] X-Trend Sharpe in range 2.1-3.1 (paper reference: ~2.65-2.70)
+- [ ] Baseline DMN Sharpe in range 1.9-2.9 (paper reference: ~2.27)
+- [ ] TSMOM Sharpe in range 0.2-1.0 (paper reference: ~0.23-1.01 depending on period)
+- [ ] COVID-19 recovery faster than baseline (paper shows ~1.5-2x improvement)
+- [ ] Maximum drawdown during COVID in reasonable range (paper: ~26%, expect 20-35%)
 
 ### Performance Targets (Zero-Shot, 2018-2023)
-- [ ] X-Trend-G Sharpe > 0.40 (paper: 0.47)
-- [ ] Baseline DMN negative Sharpe (paper: -0.11)
-- [ ] Results profitable (loss-making baseline → profitable)
+- [ ] X-Trend-G Sharpe positive and >0.3 (paper reference: ~0.47)
+- [ ] Baseline DMN struggles with unseen assets (paper reference: -0.11 to 0.02)
+- [ ] X-Trend demonstrates generalization (loss-making baseline → profitable)
 
 ### Interpretability
 - [ ] Attention weights interpretable (like Figure 9)

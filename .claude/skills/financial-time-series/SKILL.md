@@ -226,20 +226,28 @@ def portfolio_returns(positions, returns, volatility, target_vol=0.15,
 
     Returns:
         portfolio_returns: R_portfolio[t+1]
+
+    IMPORTANT: Transaction cost calculation uses position_changes which is
+    already scaled by (target_vol / volatility), so we DON'T multiply by
+    target_vol again. The formula is C * |scaled_pos[t] - scaled_pos[t-1]|,
+    where scaled_pos = z * (σ_tgt/σ). This gives C * σ_tgt * |z/σ - z_prev/σ_prev|
+    as per the paper's Eq. (2).
     """
     N = len(positions)
 
-    # Scale by volatility targeting
+    # Scale by volatility targeting: scaled_pos = z * (σ_tgt/σ)
     scaled_positions = positions * (target_vol / volatility)
 
     # Asset returns
     asset_returns = scaled_positions * returns
 
     # Transaction costs
+    # position_changes is already in units of σ_tgt * |z/σ - z_prev/σ_prev|
+    # So we only multiply by transaction_costs C, NOT by target_vol again
     position_changes = np.abs(
         scaled_positions - scaled_positions.shift(1)
     )
-    costs = transaction_costs * target_vol * position_changes
+    costs = transaction_costs * position_changes
 
     # Net returns per asset
     net_returns = asset_returns - costs

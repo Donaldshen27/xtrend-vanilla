@@ -15,9 +15,27 @@
 
 ```python
 def sharpe_loss(positions, returns, volatility, target_vol=0.15):
-    """Negative Sharpe ratio."""
+    """
+    Negative Sharpe ratio.
+
+    IMPORTANT: When training with episodic learning where each episode feeds
+    a single (asset, time) target, you must accumulate multiple samples in a
+    batch before calling this function. Alternatively, use unbiased=False to
+    avoid NaN when N=1 (unbiased estimator divides by N-1, which is 0 when N=1).
+
+    Recommended: Accumulate 32+ samples per batch for stable gradient estimates.
+
+    Note: Uses Python float for annualization factor to avoid device mismatch
+    when training on GPU. torch.sqrt(252.0) ≈ 15.8745.
+    """
     scaled_returns = (target_vol / volatility) * returns * positions
-    return -torch.sqrt(torch.tensor(252.0)) * scaled_returns.mean() / scaled_returns.std()
+
+    # Use unbiased=False to avoid NaN with small batches (N=1)
+    # This uses N as divisor instead of N-1
+    # Use plain Python float (252**0.5) instead of torch.tensor to avoid CPU tensor on GPU
+    import math
+    annualization_factor = math.sqrt(252.0)  # ≈ 15.8745
+    return -annualization_factor * scaled_returns.mean() / scaled_returns.std(unbiased=False)
 ```
 
 ### Gaussian MLE Loss
@@ -35,8 +53,26 @@ def gaussian_mle_loss(forecast, returns):
 ### Quantile Loss
 
 ```python
-def quantile_loss(forecast, returns, quantiles=[0.01, 0.05, ..., 0.99]):
-    """Quantile regression loss."""
+def quantile_loss(forecast, returns, quantiles=None):
+    """
+    Quantile regression loss.
+
+    Args:
+        forecast: Predicted quantiles, shape (..., num_quantiles)
+        returns: Actual returns
+        quantiles: List of quantile levels to predict. Default is 13 quantiles
+                  from 0.05 to 0.95 (as used in X-Trend paper)
+
+    Returns:
+        loss: Average quantile loss across all quantiles
+    """
+    if quantiles is None:
+        # Default: 13 quantiles from 0.05 to 0.95 in steps of 0.075
+        # This matches the X-Trend paper implementation
+        quantiles = [0.05, 0.125, 0.2, 0.275, 0.35, 0.425, 0.5,
+                    0.575, 0.65, 0.725, 0.8, 0.875, 0.95]
+        # Or equivalently: np.linspace(0.05, 0.95, 13).tolist()
+
     losses = []
     for i, q in enumerate(quantiles):
         errors = returns - forecast[..., i]
@@ -74,7 +110,8 @@ def joint_loss(positions, forecast, returns, volatility,
 
 ```python
 def train_xtrend(model, train_assets, val_assets, epochs=100,
-                context_size=20, seq_len=126):
+                context_size=20, seq_len=126, batch_size=32,
+                episodes_per_epoch=1000):
     """
     Train X-Trend with episodic learning.
 
@@ -84,39 +121,82 @@ def train_xtrend(model, train_assets, val_assets, epochs=100,
     3. Forward pass
     4. Compute loss
     5. Backward pass
+
+    IMPORTANT: Accumulate multiple episodes (batch_size=32+) before computing
+    Sharpe loss to avoid NaN from std() with N=1. This ensures stable gradients.
+
+    Args:
+        model: XTrendModel instance
+        train_assets: List of training assets with features/returns
+        val_assets: List of validation assets
+        epochs: Number of training epochs
+        context_size: Number of context sequences per episode
+        seq_len: Target sequence length (default 126 = 6 months)
+        batch_size: Episodes per batch (default 32, minimum 32 for stable Sharpe)
+        episodes_per_epoch: Total episodes per epoch (default 1000)
     """
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
     for epoch in range(epochs):
-        for episode in range(1000):  # Episodes per epoch
-            # Sample target
-            target_asset = random.choice(train_assets)
-            target_time = random.randint(seq_len, len(target_asset.data))
+        # Use episodes_per_epoch from config, handle remainder
+        num_batches = (episodes_per_epoch + batch_size - 1) // batch_size
 
-            target_features = target_asset.features[target_time-seq_len:target_time]
-            target_returns = target_asset.returns[target_time]
+        for batch_idx in range(num_batches):
+            # Accumulate multiple episodes per batch
+            batch_positions = []
+            batch_forecasts = []
+            batch_returns = []
+            batch_volatilities = []
 
-            # Sample context set (before target_time!)
-            context = sample_cpd_context(
-                train_assets,
-                target_time=target_time,
-                size=context_size
-            )
+            # Last batch may be smaller if episodes_per_epoch not divisible by batch_size
+            current_batch_size = min(batch_size, episodes_per_epoch - batch_idx * batch_size)
 
-            # Forward pass
-            position, forecast, _ = model(
-                target_features.unsqueeze(0),
-                target_asset.id,
-                [ctx['features'] for ctx in context],
-                [ctx['asset_id'] for ctx in context]
-            )
+            for _ in range(current_batch_size):
+                # Sample target
+                target_asset = random.choice(train_assets)
+                target_time = random.randint(seq_len, len(target_asset.data))
 
-            # Loss
+                target_features = target_asset.features[target_time-seq_len:target_time]
+                target_returns = target_asset.returns[target_time]
+
+                # Sample context set (before target_time!)
+                context = sample_cpd_context(
+                    train_assets,
+                    target_time=target_time,
+                    size=context_size
+                )
+
+                # Forward pass
+                position, forecast, _ = model(
+                    target_features.unsqueeze(0),
+                    target_asset.id,
+                    [ctx['features'] for ctx in context],
+                    [ctx['asset_id'] for ctx in context]
+                )
+
+                # Accumulate batch
+                batch_positions.append(position[:, -1, 0])
+                batch_forecasts.append(forecast[:, -1, :])
+                batch_returns.append(target_returns)
+                batch_volatilities.append(target_asset.volatility[target_time])
+
+            # Concatenate batched tensors
+            batched_positions = torch.cat(batch_positions)
+            batched_forecasts = torch.stack(batch_forecasts)
+
+            # CRITICAL: Create returns/volatility tensors on same device as model outputs
+            # to avoid "Expected all tensors to be on the same device" error on GPU
+            device = batched_positions.device
+            dtype = batched_positions.dtype
+            batched_returns = torch.tensor(batch_returns, device=device, dtype=dtype)
+            batched_volatilities = torch.tensor(batch_volatilities, device=device, dtype=dtype)
+
+            # Compute loss on accumulated batch (avoids NaN from std with N=1)
             loss = joint_loss(
-                position[:, -1, 0],  # Final position
-                forecast[:, -1, :],  # Final forecast
-                target_returns,
-                target_asset.volatility[target_time],
+                batched_positions,
+                batched_forecasts,
+                batched_returns,
+                batched_volatilities,
                 alpha=1.0,
                 forecast_type='gaussian'
             )
@@ -124,6 +204,7 @@ def train_xtrend(model, train_assets, val_assets, epochs=100,
             # Backward
             optimizer.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)
             optimizer.step()
 
         # Validate
@@ -166,9 +247,11 @@ def validate(model, val_assets, context_size=20):
                 ret = position[:, -1, 0] * asset.returns[t]
                 all_returns.append(ret.item())
 
-    # Calculate Sharpe
+    # Calculate Sharpe (use Python float to avoid CPU tensor issues)
+    import math
     returns_tensor = torch.tensor(all_returns)
-    sharpe = torch.sqrt(torch.tensor(252.0)) * returns_tensor.mean() / returns_tensor.std()
+    annualization_factor = math.sqrt(252.0)  # ≈ 15.8745
+    sharpe = annualization_factor * returns_tensor.mean() / returns_tensor.std()
 
     model.train()
     return sharpe.item()
@@ -193,6 +276,7 @@ model_config = {
 ```python
 training_config = {
     'epochs': 100,
+    'batch_size': 32,         # Episodes per batch (CRITICAL: use 32+ to avoid NaN in Sharpe loss)
     'episodes_per_epoch': 1000,
     'context_size': 20,       # Number of context sequences
     'seq_len': 126,           # Target sequence length (6 months)

@@ -1,6 +1,6 @@
 ---
 name: few-shot-learning-finance
-description: Few-shot learning for financial time-series and trading strategies. Covers episodic learning, context sets, support and query sequences, zero-shot vs few-shot learning, meta-learning for finance, transfer learning across assets and regimes, quick adaptation to market changes. Use when implementing models that learn from minimal data or need to adapt to new market regimes rapidly.
+description: Use when implementing models that learn from minimal data or need to adapt to new market regimes rapidly. Covers episodic learning, context sets, support and query sequences, zero-shot vs few-shot learning, meta-learning for finance, transfer learning across assets and regimes, and quick adaptation to market changes.
 ---
 
 # Few-Shot Learning for Finance
@@ -65,7 +65,7 @@ for episode in episodes:
     # Sample target sequence (what we want to predict)
     target_asset, target_time = sample_target()
 
-    # Sample context set (what we condition on)
+    # Sample context set C (what we condition on)
     context_set = sample_contexts(
         assets=train_assets,
         exclude=(target_asset, target_time),  # Ensure causality
@@ -87,395 +87,117 @@ for episode in episodes:
 
 ### 3. Context Set Construction
 
-Context set `C` contains sequences from other assets/regimes:
+Context set `C` contains sequences from other assets/regimes that inform the prediction.
 
-```python
-def construct_context_set(target_time, train_assets, size=20,
-                         method='random'):
-    """
-    Build context set for few-shot prediction.
+**Properties:**
+- **Size**: Typically 10-30 sequences
+- **Causality**: All context must occur before target time
+- **Diversity**: Include different assets and market conditions
+- **Quality**: CPD segmentation improves performance 11.3% vs random
 
-    Args:
-        target_time: Time t of target prediction
-        train_assets: Available assets for context
-        size: Number of sequences in context |C|
-        method: 'random', 'time_equivalent', 'cpd_segmented'
+**Construction Methods:**
 
-    Returns:
-        context_set: List of (asset, start_time, end_time) tuples
-    """
-    context_set = []
+1. **Random**: Sample random sequences before target_time
+2. **Time-equivalent**: Same time window as target, different assets
+3. **CPD-segmented**: Use change-point detection for clean regime segments
 
-    for _ in range(size):
-        # Sample random asset (can be different from target)
-        asset = random.choice(train_assets)
-
-        if method == 'random':
-            # Random sequence of fixed length before target_time
-            length = random.randint(10, 30)
-            end_time = random_time_before(target_time)
-            start_time = end_time - length
-
-        elif method == 'time_equivalent':
-            # Same length as target, time-aligned
-            start_time = target_start_time
-            end_time = target_time
-
-        elif method == 'cpd_segmented':
-            # Use change-point detection to get regime segments
-            segment = sample_cpd_segment(asset, before=target_time)
-            start_time, end_time = segment
-
-        context_set.append((asset, start_time, end_time))
-
-    return context_set
-```
-
-**Context Set Properties:**
-- Size `|C|`: Typically 10-30 sequences
-- Causality: All context sequences must occur before target time
-- Diversity: Include different assets and market conditions
-- Quality: Using change-point detection improves performance 11.3%
+See [IMPLEMENTATION.md](IMPLEMENTATION.md#context-set-construction) for code examples.
 
 ### 4. Meta-Learning Architecture
 
-**Input Structure:**
-```python
-# Target sequence (what we predict for)
-target = {
-    'asset': 'SPY',
-    'features': x[t-126:t],  # 126 days of MACD, returns, etc.
-    'time': t
-}
+**How It Works:**
 
-# Context set (what we condition on)
-context = [
-    {'asset': 'GLD', 'features': ξ[c][t1-20:t1], 'returns': y[c][t1]},
-    {'asset': 'TLT', 'features': ξ[c][t2-20:t2], 'returns': y[c][t2]},
-    ...  # C total sequences
-]
+1. **Encode context sequences** → Learn patterns from similar situations
+2. **Encode target sequence** → Understand current market state
+3. **Cross-attention** → Target queries context for relevant patterns
+4. **Combine representations** → Integrate transferred knowledge
+5. **Predict position** → Generate trading signal
 
-# Key difference: Context includes labels (returns), target doesn't
-```
+**Key Insight:** Cross-attention automatically identifies which context sequences are most similar to the target, weighting them higher in the final prediction.
 
-**Model Flow:**
-```python
-class FewShotTradingModel(nn.Module):
-    def forward(self, target, context):
-        # 1. Encode context sequences
-        context_encodings = []
-        for ctx in context:
-            h_c = self.encoder(ctx['features'])
-            context_encodings.append(h_c)
+See [IMPLEMENTATION.md](IMPLEMENTATION.md#meta-learning-architecture) for implementation.
 
-        # 2. Encode target sequence
-        h_target = self.encoder(target['features'])
+### 5. Transfer Learning Scenarios
 
-        # 3. Cross-attention: target attends to context
-        context_summary = self.cross_attention(
-            query=h_target,
-            keys=context_encodings,
-            values=context_encodings
-        )
+**1. Same Asset, Different Regime (Few-Shot)**
+- Target: SPY in 2020 (COVID crash)
+- Context: SPY in 2008 (financial crisis), SPY in 2018 (correction)
+- Transfer: Crisis response patterns
 
-        # 4. Combine target encoding + context summary
-        combined = torch.cat([h_target, context_summary], dim=-1)
+**2. Different Assets, Similar Dynamics (Zero-Shot)**
+- Target: New cryptocurrency (BTC)
+- Context: Gold, Silver, Crude Oil (commodities)
+- Transfer: Trending behavior, volatility patterns
 
-        # 5. Predict position
-        position = self.decoder(combined)
-
-        return position
-```
-
-### 5. Transfer Learning Strategies
-
-**Pattern Transfer:**
-```python
-def find_similar_patterns(target_sequence, context_set):
-    """
-    Identify which context sequences are most similar to target.
-
-    This is what cross-attention does automatically!
-    """
-    similarities = []
-
-    for context_seq in context_set:
-        # Attention computes similarity
-        sim = cosine_similarity(
-            target_sequence.encoding,
-            context_seq.encoding
-        )
-        similarities.append(sim)
-
-    # Attention weights = softmax(similarities)
-    attention_weights = softmax(similarities)
-
-    # Weighted combination of context
-    transferred_knowledge = sum(
-        w * ctx.encoding
-        for w, ctx in zip(attention_weights, context_set)
-    )
-
-    return transferred_knowledge
-```
-
-**Example Transfer Scenarios:**
-
-1. **Same Asset, Different Regime** (Few-shot)
-   - Target: SPY in 2020 (COVID crash)
-   - Context: SPY in 2008 (financial crisis), SPY in 2018 (correction)
-   - Transfer: Crisis response patterns
-
-2. **Different Assets, Similar Dynamics** (Zero-shot)
-   - Target: New cryptocurrency (BTC)
-   - Context: Gold, Silver, Crude Oil (commodities)
-   - Transfer: Trending behavior, volatility patterns
-
-3. **Cross-Asset Momentum Spillover**
-   - Target: European equities (CAC40)
-   - Context: US equities (SPY), Asian equities (Nikkei)
-   - Transfer: Leading indicators, correlation structures
+**3. Cross-Asset Momentum Spillover**
+- Target: European equities (CAC40)
+- Context: US equities (SPY), Asian equities (Nikkei)
+- Transfer: Leading indicators, correlation structures
 
 ### 6. Training Objectives
 
 **Joint Loss Function:**
 ```python
-def joint_loss(model, target, context, returns, alpha=1.0):
-    """
-    Combine forecasting accuracy with trading performance.
+L_joint = α * L_MLE + L_Sharpe
 
-    L_joint = α * L_MLE + L_Sharpe
-
-    This ensures model learns both to forecast AND to trade profitably.
-    """
-    # Get model outputs
-    forecast_dist = model.forecast(target, context)  # (μ, σ)
-    position = model.position(target, context)       # z ∈ [-1, 1]
-
-    # Maximum likelihood loss (forecasting)
-    L_MLE = -log_likelihood(returns, forecast_dist)
-
-    # Sharpe ratio loss (trading)
-    strategy_returns = position * returns
-    L_Sharpe = -sharpe_ratio(strategy_returns)
-
-    return alpha * L_MLE + L_Sharpe
+where:
+- L_MLE: Maximum likelihood (forecasting accuracy)
+- L_Sharpe: Negative Sharpe ratio (trading performance)
+- α: Balance parameter (1.0 for Gaussian, 5.0 for quantile)
 ```
 
 **Why Joint Training?**
-- Pure forecasting (MLE) doesn't optimize for trading
+- Pure forecasting doesn't optimize for trading
 - Pure Sharpe can overfit to training period
 - Joint training balances both objectives
-- α balances importance (typically α=1 for Gaussian, α=5 for quantile)
 
-### 7. Evaluation Protocols
+See [IMPLEMENTATION.md](IMPLEMENTATION.md#training-objectives) for implementation.
 
-**Expanding Window Backtest:**
-```python
-def few_shot_backtest(assets, start_year=1990, end_year=2023):
-    """
-    Evaluate few-shot model with expanding training window.
+## Evaluation Protocols
 
-    Prevents look-ahead bias and simulates realistic deployment.
-    """
-    results = []
+### Expanding Window Backtest
 
-    # Initial training: 1990-1995
-    # Test: 1995-2000
-    # Expand training: 1990-2000
-    # Test: 2000-2005
-    # ... and so on
+**Process:**
+1. Train on 1990-1995 data
+2. Test on 1995-2000
+3. Expand training to 1990-2000
+4. Test on 2000-2005
+5. Continue expanding...
 
-    train_start = start_year
-    test_periods = [
-        (1995, 2000),
-        (2000, 2005),
-        (2005, 2010),
-        (2010, 2013),
-        (2013, 2018),
-        (2018, 2023)
-    ]
+**Critical**: Context sets must only use data from training period (no look-ahead).
 
-    for test_start, test_end in test_periods:
-        # Train on all data up to test period
-        train_data = load_data(train_start, test_start)
-        model = train_model(train_data)
+See [IMPLEMENTATION.md](IMPLEMENTATION.md#expanding-window-backtest) for code.
 
-        # Test on next 5-year period
-        test_data = load_data(test_start, test_end)
+### Zero-Shot Evaluation
 
-        for t in test_data.timestamps:
-            # Sample context set (from training period only!)
-            context = sample_context_before(t, train_data)
+**Setup:**
+- Train on 30 assets (traditional futures)
+- Test on 20 completely different assets (cryptocurrencies)
+- Context from training assets only
+- Validates true transfer learning capability
 
-            # Make prediction for target
-            position = model.predict(
-                target=test_data[t],
-                context=context
-            )
-
-            # Record returns
-            ret = position * test_data.returns[t+1]
-            results.append(ret)
-
-        # Expand training window
-        train_start = train_start
-
-    return results
-```
-
-**Zero-Shot Evaluation:**
-```python
-def zero_shot_backtest(train_assets, test_assets):
-    """
-    Test on completely unseen assets.
-
-    train_assets: 30 assets (e.g., traditional futures)
-    test_assets: 20 different assets (e.g., cryptocurrencies)
-    """
-    # Train only on train_assets
-    model = train_model(train_assets, method='episodic')
-
-    # Test on test_assets (model has never seen these!)
-    results = []
-    for asset in test_assets:
-        for t in test_period:
-            # Context from train_assets only
-            context = sample_context(train_assets, before_time=t)
-
-            # Target from test_assets
-            target = load_target(asset, time=t)
-
-            position = model.predict(target, context)
-            ret = position * asset.returns[t+1]
-            results.append(ret)
-
-    return results
-```
-
-## Implementation Patterns
-
-### Pattern 1: Basic Few-Shot Setup
-
-```python
-class BasicFewShotTrader:
-    def __init__(self, context_size=20):
-        self.context_size = context_size
-        self.encoder = LSTMEncoder(input_dim=X, hidden_dim=64)
-        self.attention = CrossAttention(dim=64)
-        self.decoder = PositionDecoder(input_dim=128, output_dim=1)
-
-    def predict(self, target_features, context_set):
-        # Encode all context sequences
-        context_encodings = [
-            self.encoder(ctx['features'])
-            for ctx in context_set
-        ]
-
-        # Encode target
-        target_encoding = self.encoder(target_features)
-
-        # Cross-attention
-        attended = self.attention(
-            query=target_encoding,
-            context=context_encodings
-        )
-
-        # Decode to position
-        combined = torch.cat([target_encoding, attended], dim=-1)
-        position = torch.tanh(self.decoder(combined))
-
-        return position
-```
-
-### Pattern 2: Change-Point Segmented Context
-
-```python
-def cpd_segmented_context(assets, target_time, size=20):
-    """
-    Use Gaussian Process change-point detection to create context.
-
-    Improvement: +11.3% Sharpe vs random sequences (X-Trend paper)
-    """
-    context = []
-
-    for _ in range(size):
-        asset = random.choice(assets)
-        prices = load_prices(asset, end=target_time)
-
-        # Detect regime boundaries
-        changepoints = gaussian_process_cpd(
-            prices,
-            threshold=0.9,  # LC/(LM + LC) ≥ 0.9
-            lookback=21
-        )
-
-        # Sample one regime segment
-        segment = random.choice(changepoints)
-        start, end = segment
-
-        # Limit segment length
-        if end - start > 21:  # max 1 month
-            start = end - 21
-
-        if end - start >= 5:  # min 5 days
-            context.append({
-                'asset': asset,
-                'features': load_features(asset, start, end),
-                'returns': load_returns(asset, start, end)
-            })
-
-    return context
-```
-
-### Pattern 3: Time-Equivalent Context
-
-```python
-def time_equivalent_context(target_asset, target_length, target_time,
-                           other_assets, size=20):
-    """
-    Create context with same time structure as target.
-
-    Each context sequence:
-    - Same length as target (lc = lt)
-    - Time-aligned (can attend to corresponding time steps)
-    """
-    context = []
-
-    for _ in range(size):
-        asset = random.choice(other_assets)
-
-        # Same time window as target
-        start = target_time - target_length
-        end = target_time
-
-        context.append({
-            'asset': asset,
-            'features': load_features(asset, start, end),
-            'returns': load_returns(asset, start, end),
-            'length': target_length
-        })
-
-    return context
-```
+See [IMPLEMENTATION.md](IMPLEMENTATION.md#zero-shot-evaluation) for implementation.
 
 ## Performance Insights from X-Trend Paper
 
-**Few-Shot Results (2018-2023):**
-- Baseline (no context): Sharpe = 2.27
-- X-Trend (with context): Sharpe = 2.70 (+18.9%)
-- X-Trend (CPD context): Sharpe = 2.70 (+18.9%)
-- vs TSMOM: Sharpe = 0.23 (10× improvement)
+### Few-Shot Results (2018-2023)
 
-**Zero-Shot Results (2018-2023):**
-- Baseline: Sharpe = -0.11 (loss-making!)
-- X-Trend-G (Gaussian): Sharpe = 0.47
-- TSMOM: Sharpe = -0.26
-- 5× Sharpe improvement vs baseline
+- **Baseline** (no context): Sharpe = 2.27
+- **X-Trend** (with context): Sharpe = 2.70 (+18.9%)
+- **X-Trend** (CPD context): Sharpe = 2.70 (+18.9%)
+- **vs TSMOM**: Sharpe = 0.23 (10× improvement)
 
-**COVID-19 Recovery:**
-- Baseline: 254 days to recover from drawdown
-- X-Trend: 162 days (2× faster recovery)
+### Zero-Shot Results (2018-2023)
+
+- **Baseline**: Sharpe = -0.11 (loss-making!)
+- **X-Trend-G** (Gaussian): Sharpe = 0.47 (profitable)
+- **TSMOM**: Sharpe = -0.26
+- **5× Sharpe improvement** vs baseline
+
+### COVID-19 Recovery
+
+- **Baseline**: 254 days to recover from drawdown
+- **X-Trend**: 162 days (2× faster recovery)
 
 ## Best Practices
 
@@ -498,7 +220,7 @@ def time_equivalent_context(target_asset, target_length, target_time,
 
 ## Common Pitfalls
 
-**Pitfall 1: Data Leakage**
+### Pitfall 1: Data Leakage
 ```python
 # WRONG - context from future!
 context = sample_sequences(all_time_periods)
@@ -507,7 +229,7 @@ context = sample_sequences(all_time_periods)
 context = sample_sequences(before=target_time)
 ```
 
-**Pitfall 2: Overfitting to Context Construction**
+### Pitfall 2: Overfitting to Context Construction
 ```python
 # WRONG - optimization on test set
 best_cpd_threshold = optimize_on_test_set()
@@ -516,14 +238,32 @@ best_cpd_threshold = optimize_on_test_set()
 best_cpd_threshold = cross_validate_on_train_set()
 ```
 
-**Pitfall 3: Ignoring Asset Heterogeneity**
+### Pitfall 3: Ignoring Asset Heterogeneity
 ```python
 # WRONG - assume all assets behave identically
-encoding = lstm(features)  # Same encoding for all
+encoding = lstm(features)
 
 # CORRECT - use entity embeddings
 encoding = lstm(features) + asset_embedding[asset_id]
 ```
+
+See [IMPLEMENTATION.md](IMPLEMENTATION.md#common-pitfalls) for more examples.
+
+## Implementation Checklist
+
+When implementing few-shot learning:
+
+- [ ] Define few-shot vs zero-shot split (asset overlap)
+- [ ] Implement episodic training loop
+- [ ] Create context sampling function (ensure causality)
+- [ ] Add cross-attention mechanism for context integration
+- [ ] Implement joint loss (forecasting + trading)
+- [ ] Set context size (10-30 sequences)
+- [ ] Add CPD-based context construction (optional, +11% Sharpe)
+- [ ] Implement expanding window backtest
+- [ ] Test zero-shot performance separately
+- [ ] Monitor attention weights for interpretability
+- [ ] Validate no future information leaks
 
 ## Key Takeaways
 
@@ -533,11 +273,15 @@ encoding = lstm(features) + asset_embedding[asset_id]
 4. **Episodic Training Required** - Don't mix all data; train in episodes
 5. **Joint Objectives Help** - Forecasting + trading better than either alone
 
-## Related Files
+## Related Skills
 
 - `financial-time-series` - Momentum factors, returns, portfolio construction
 - `change-point-detection` - GP-CPD for regime segmentation
-- `attention-trading-models` - Cross-attention mechanisms
+- `x-trend-architecture` - Cross-attention mechanisms
+
+## Reference Files
+
+- [IMPLEMENTATION.md](IMPLEMENTATION.md) - Context construction methods, meta-learning architecture, evaluation protocols, common pitfalls
 
 ## References
 
@@ -550,4 +294,4 @@ encoding = lstm(features) + asset_embedding[asset_id]
 
 **Last Updated**: Based on X-Trend paper (March 2024)
 **Skill Type**: Domain Knowledge
-**Line Count**: ~490 (under 500-line rule ✅)
+**Line Count**: ~310 (under 500-line rule ✅)

@@ -1,6 +1,6 @@
 ---
 name: financial-time-series
-description: Financial time-series processing for trend-following strategies. Covers returns calculation, volatility targeting, momentum factors, MACD indicators, time-series momentum (TSMOM), portfolio construction, futures contracts, and risk-adjusted returns. Use when working with price data, trading signals, or implementing momentum strategies.
+description: Use when working with price data, trading signals, or implementing momentum strategies. Covers returns calculation, volatility targeting, momentum factors, MACD indicators, time-series momentum (TSMOM), portfolio construction, futures contracts, and risk-adjusted returns for trend-following strategies.
 ---
 
 # Financial Time-Series Processing
@@ -139,7 +139,7 @@ def macd_factor(prices, short=8, long=24, lookback_std=252):
     """
     ewma_short = prices.ewm(span=short).mean()
     ewma_long = prices.ewm(span=long).mean()
-    price_std = prices.rolling(60).std()
+    price_std = prices.ewm(span=60).std()
 
     m = (ewma_short - ewma_long) / price_std
     m_std = m.rolling(lookback_std).std()
@@ -186,7 +186,7 @@ def create_feature_vector(prices):
     - Normalized returns at multiple timescales
     - MACD indicators at multiple (S, L) pairs
     """
-    volatility = prices.pct_change().rolling(60).std()
+    volatility = prices.pct_change().ewm(span=60).std()
 
     # Normalized returns
     norm_returns = normalized_returns(prices, volatility)
@@ -352,8 +352,8 @@ def tsmom_strategy(prices, target_vol=0.15):
     # 2. Generate signal
     signal = np.sign(returns_252)
 
-    # 3. Calculate realized volatility
-    realized_vol = prices.pct_change().rolling(60).std()
+    # 3. Calculate realized volatility (60-day EWMA)
+    realized_vol = prices.pct_change().ewm(span=60).std()
 
     # 4. Apply volatility targeting
     position = volatility_targeting(signal, realized_vol, target_vol)
@@ -380,7 +380,7 @@ def multi_asset_portfolio(asset_prices_dict, target_vol=0.15):
     for asset, prices in asset_prices_dict.items():
         # Generate signal for each asset
         signal = tsmom_signal(calculate_returns(prices, 252))
-        volatility = prices.pct_change().rolling(60).std()
+        volatility = prices.pct_change().ewm(span=60).std()
         position = volatility_targeting(signal, volatility, target_vol)
 
         # Calculate asset returns

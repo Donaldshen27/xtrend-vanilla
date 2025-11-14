@@ -15,7 +15,7 @@
 
 ```python
 def construct_context_set(target_time, train_assets, size=20,
-                         method='random'):
+                         method='random', target_length=126):
     """
     Build context set for few-shot prediction.
 
@@ -24,6 +24,8 @@ def construct_context_set(target_time, train_assets, size=20,
         train_assets: Available assets for context
         size: Number of sequences in context |C|
         method: 'random', 'time_equivalent', 'cpd_segmented'
+        target_length: Length of target sequence (needed for time_equivalent method)
+                      Default 126 days (6 months). Used to calculate start time.
 
     Returns:
         context_set: List of (asset, start_time, end_time) tuples
@@ -42,7 +44,8 @@ def construct_context_set(target_time, train_assets, size=20,
 
         elif method == 'time_equivalent':
             # Same length as target, time-aligned
-            start_time = target_start_time
+            # Calculate start time from target_time and target_length
+            start_time = target_time - target_length
             end_time = target_time
 
         elif method == 'cpd_segmented':

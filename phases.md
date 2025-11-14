@@ -170,7 +170,7 @@ print(model)
 # - Skip connections and LayerNorm layers
 
 # Forward pass test
-batch_size, seq_len, n_features = 32, 126, 11
+batch_size, seq_len, n_features = 32, 126, 8
 x = torch.randn(batch_size, seq_len, n_features)
 entity_ids = torch.randint(0, 50, (batch_size,))
 
@@ -521,28 +521,40 @@ for window in backtest_windows:
 
 ✅ **You should see:**
 ```python
-# Training progress
-Epoch 1/100: train_loss=-1.234, val_sharpe=1.45, lr=0.001000
-Epoch 2/100: train_loss=-1.456, val_sharpe=1.52, lr=0.001000
+# Training progress (example format - actual values vary with seeds/data/hyperparameters)
+Epoch 1/100: train_loss=-X.XXX, val_sharpe=Y.YY, lr=0.001000
+Epoch 2/100: train_loss=-X.XXX, val_sharpe=Y.YY, lr=0.001000
 ...
-Epoch 23/100: train_loss=-2.134, val_sharpe=2.13, lr=0.001000
 Early stopping triggered: no improvement for 10 epochs
-Best val_sharpe: 2.23 at epoch 13
+Best val_sharpe: [saved at some epoch before patience limit]
 
 # Hyperparameter search results
-Best hyperparameters:
-- dropout: 0.4
-- hidden_size: 128
-- batch_size: 64
-- max_grad_norm: 1.0
-- val_sharpe: 2.23
+Best hyperparameters found (example):
+- dropout: typically 0.3-0.5
+- hidden_size: typically 64 or 128
+- batch_size: typically 64 or 128
+- max_grad_norm: typically 0.01-1.0
+- val_sharpe: varies significantly with data and seed
 
-# Ensemble performance
+# Ensemble performance (qualitative expectations)
 Ensemble of 10 models:
-- Mean val_sharpe: 2.18 ± 0.08
-- Best individual: 2.31
-- Worst individual: 2.07
+- Should show lower variance than individual models
+- Mean performance typically better than median individual
+- Standard deviation indicates model stability
+- Individual models may vary by 10-20% due to random initialization
 ```
+
+**Note:** Exact loss and Sharpe values are highly sensitive to:
+- Random seed initialization
+- Data preprocessing choices (e.g., how missing data is handled)
+- Hyperparameter configuration
+- Training/validation split boundaries
+
+**Qualitative success criteria:**
+- Training loss should decrease over epochs (negative values getting more negative is improvement for Sharpe loss)
+- Validation Sharpe should generally increase then plateau (early stopping prevents overfitting)
+- Ensemble should reduce variance compared to individual runs
+- No gradient explosions or NaN values during training
 
 **Plots:**
 1. Training and validation loss curves

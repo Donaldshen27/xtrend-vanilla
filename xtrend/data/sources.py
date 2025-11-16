@@ -80,3 +80,65 @@ class DuckDBParquetStore:
     def read_panel(self, symbols: "Sequence[str]", start: Optional[Any] = None, end: Optional[Any] = None) -> "Any":
         """Load a price panel subset into memory (declaration only)."""
         pass
+
+class BloombergParquetSource:
+    """
+    Adapter for Bloomberg continuous futures data stored as local Parquet files.
+
+    Data flow:
+        1. Export from Bloomberg Terminal using Excel BDH() formula
+        2. Convert to Parquet using scripts/convert_bloomberg_to_parquet.py
+        3. Load using this class
+
+    File structure:
+        data/bloomberg/[SYMBOL].parquet
+        - Each file contains: date index, 'price' column
+        - Example: data/bloomberg/CL1.parquet
+
+    Methods:
+        symbols() -> List[str]
+        load_prices(symbols, start, end) -> DataFrame[date × symbol]
+
+    Notes:
+        - Expects one Parquet file per symbol
+        - Parquet schema: date (index), price (float)
+        - Returns wide DataFrame with dates as index, symbols as columns
+    """
+    def __init__(self, root_path: str = "data/bloomberg"):
+        """
+        Initialize with root path to Bloomberg Parquet files.
+
+        Args:
+            root_path: Directory containing [SYMBOL].parquet files
+        """
+        pass
+
+    def symbols(self) -> "List[str]":
+        """
+        Return available Bloomberg symbols from Parquet files.
+
+        Returns:
+            List of symbol names (e.g., ['CL1', 'BN1', 'ES1'])
+        """
+        pass
+
+    def load_prices(self, symbols: "Sequence[str]", start: Optional[Any] = None, end: Optional[Any] = None) -> "Any":
+        """
+        Load price panel for given symbols and date range.
+
+        Args:
+            symbols: List of symbols to load (e.g., ['CL1', 'BN1'])
+            start: Start date (optional, format: 'YYYY-MM-DD' or datetime)
+            end: End date (optional, format: 'YYYY-MM-DD' or datetime)
+
+        Returns:
+            Wide DataFrame with:
+                - Index: dates
+                - Columns: symbols
+                - Values: prices
+
+        Raises:
+            FileNotFoundError: If symbol Parquet file not found
+            ValueError: If invalid date range
+        """
+        pass

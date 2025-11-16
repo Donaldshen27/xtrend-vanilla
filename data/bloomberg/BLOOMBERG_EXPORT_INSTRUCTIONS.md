@@ -4,8 +4,23 @@
 
 ## Quick Start
 
+**🚀 AUTOMATED WORKBOOK GENERATION (RECOMMENDED):**
+```bash
+# Generate 50-asset workbook
+python scripts/generate_bloomberg_workbook.py
+
+# Generate 72-asset workbook (expanded set)
+python scripts/generate_bloomberg_workbook.py --expanded
+
+# Custom date range
+python scripts/generate_bloomberg_workbook.py --expanded --start 1995-01-01 --end 2024-12-31
+```
+
+This creates an Excel file with the BDH formula pre-configured. Just copy to USB, open at Bloomberg Terminal, and press Enter in cell F1.
+
+**Manual Setup:**
 **For original 50 assets:** See [Section A](#section-a-original-50-assets)
-**For expanded 72 assets:** See [Section B](#section-b-expanded-72-asset-set) ⭐ **RECOMMENDED**
+**For expanded 72 assets:** See [Section B](#section-b-expanded-72-asset-set)
 
 ---
 
@@ -20,6 +35,18 @@ The expanded set adds **22 new instruments** to enhance X-Trend's few-shot learn
 - **Expected performance**: +25-35% Sharpe improvement vs 50-asset baseline
 
 See [`XTREND_ASSET_EXPANSION_NOTES.md`](./XTREND_ASSET_EXPANSION_NOTES.md) for detailed rationale.
+
+### Automated Method (Recommended)
+
+Run the workbook generator script before going to the terminal:
+
+```bash
+python scripts/generate_bloomberg_workbook.py --expanded
+```
+
+This creates `data/bloomberg/raw/bloomberg_export_72assets.xlsx` with all symbols and the BDH formula pre-configured.
+
+### Manual Method
 
 ### Step 1: At the Bloomberg Terminal
 
@@ -40,17 +67,17 @@ See [`XTREND_ASSET_EXPANSION_NOTES.md`](./XTREND_ASSET_EXPANSION_NOTES.md) for d
 
 ### Step 3: Bulk Download Formula (72 Assets)
 
-In cell E1, enter this formula:
+In cell F1, enter this formula:
 
 ```excel
-=BDH($D$2:$D$73,"PX_LAST","19900101","20231231","Dir=V")
+=BDH($D$2:$D$73,"PX_LAST","19900101","20251116","Dir=V")
 ```
 
 **Formula breakdown:**
-- `D2:D73` = Bloomberg ticker strings for all 72 assets
+- `$D$2:$D$73` = Bloomberg ticker strings for all 72 assets
 - `"PX_LAST"` = Last price field
 - `"19900101"` = Start date (Jan 1, 1990)
-- `"20231231"` = End date (Dec 31, 2023)
+- `"20251116"` = End date (Nov 16, 2025)
 - `"Dir=V"` = Vertical direction (dates down, symbols across)
 
 **⚠️ Important Notes:**
@@ -63,6 +90,18 @@ In cell E1, enter this formula:
 
 ## Section A: Original 50 Assets
 
+### Automated Method (Recommended)
+
+Run the workbook generator script before going to the terminal:
+
+```bash
+python scripts/generate_bloomberg_workbook.py
+```
+
+This creates `data/bloomberg/raw/bloomberg_export.xlsx` with all symbols and the BDH formula pre-configured.
+
+### Manual Method
+
 ### Step 1: At the Bloomberg Terminal
 
 1. Open Excel (Bloomberg Add-in should be pre-loaded)
@@ -74,22 +113,24 @@ In cell E1, enter this formula:
 1. Open [`symbol_map.csv`](./symbol_map.csv) (or the copy in the README).
 2. In Excel set:
    - `A1 = Pinnacle ID`
-   - `B1 = Bloomberg Ticker`
-3. Paste the 50 rows from the table below so every Pinnacle ID aligns with its Bloomberg ticker. The `BDH()` formula will reference **column B** while column **A** preserves the IDs needed by the paper.
+   - `B1 = Asset Class`
+   - `C1 = Description`
+   - `D1 = Bloomberg Ticker`
+3. Paste the 50 rows from the symbol map CSV
 
 ### Step 3: Bulk Download Formula (Original)
 
-In cell C1, enter this formula:
+In cell F1, enter this formula:
 
 ```excel
-=BDH($B$2:$B$51,"PX_LAST","19900101","20231231","Dir=V")
+=BDH($D$2:$D$51,"PX_LAST","19900101","20251116","Dir=V")
 ```
 
 **Formula breakdown:**
-- `B2:B51` = Bloomberg ticker strings listed below
+- `$D$2:$D$51` = Bloomberg ticker strings from column D
 - `"PX_LAST"` = Last price field
 - `"19900101"` = Start date (Jan 1, 1990)
-- `"20231231"` = End date (Dec 31, 2023)
+- `"20251116"` = End date (Nov 16, 2025)
 - `"Dir=V"` = Vertical direction (dates down, symbols across)
 
 Press Enter and wait 5-10 minutes for Bloomberg to load all the data.

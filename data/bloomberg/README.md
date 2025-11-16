@@ -13,13 +13,27 @@ Bloomberg Terminal (Excel) → CSV/Excel → Parquet → BloombergParquetSource
 
 ## Quick Start
 
+### 0. Before Going to Bloomberg Terminal (Recommended)
+
+Generate the Excel workbook with pre-configured BDH formula:
+
+```bash
+# For 50-asset set
+python scripts/generate_bloomberg_workbook.py
+
+# For 72-asset set (recommended)
+python scripts/generate_bloomberg_workbook.py --expanded
+```
+
+Copy the generated file from `data/bloomberg/raw/` to USB drive.
+
 ### 1. At Bloomberg Terminal (University Library)
 
 Follow the detailed instructions in: [`BLOOMBERG_EXPORT_INSTRUCTIONS.md`](./BLOOMBERG_EXPORT_INSTRUCTIONS.md)
 
 **Summary:**
-- Open Excel at Bloomberg Terminal
-- Use `=BDH()` formula to download all 50 symbols at once
+- Open the generated Excel file (or create manually with `=BDH()` formula)
+- Press Enter in cell F1 to download all symbols at once
 - Save Excel file and copy to USB drive
 
 **Time required:** ~30 minutes (including formula loading time)
@@ -251,8 +265,11 @@ BN1: 7200 rows, 1992-06-15 to 2023-12-29
 
 | File | Purpose |
 |------|---------|
-| `BLOOMBERG_EXPORT_INSTRUCTIONS.md` | Step-by-step Bloomberg Terminal guide |
+| `scripts/generate_bloomberg_workbook.py` | Generate Excel workbook with BDH formula |
 | `scripts/convert_bloomberg_to_parquet.py` | CSV/Excel → Parquet converter |
+| `BLOOMBERG_EXPORT_INSTRUCTIONS.md` | Step-by-step Bloomberg Terminal guide |
+| `symbol_map.csv` | 50-asset symbol mapping (Pinnacle → Bloomberg) |
+| `symbol_map_expanded.csv` | 72-asset symbol mapping (includes new additions) |
 | `xtrend/data/sources.py` | Data source classes (including `BloombergParquetSource`) |
 | `conf/data/futures.yaml` | Data source configuration |
 

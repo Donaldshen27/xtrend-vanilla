@@ -66,6 +66,69 @@ prices = source.load_prices(
 # Returns: DataFrame with dates as index, symbols as columns
 ```
 
+## Canonical Symbol Map (Matches Table 5 & 6)
+
+To stay faithful to the X-Trend paper portfolio (Tables 5 & 6 in *Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies*), we maintain a canonical mapping between Pinnacle IDs and Bloomberg tickers in [`data/bloomberg/symbol_map.csv`](./symbol_map.csv). Copy/paste this list into Excel so column **A** holds the Pinnacle IDs (useful for traceability) and column **B** holds the Bloomberg tickers that the `BDH()` formula should reference:
+
+| Pinnacle | Bloomberg | Asset Class | Description |
+|----------|-----------|-------------|-------------|
+| CC | CC1 Comdty | CM | Cocoa |
+| DA | DA1 Comdty | CM | Class III Milk |
+| LB | LB1 Comdty | CM | Random Length Lumber |
+| SB | SB1 Comdty | CM | Sugar #11 |
+| ZA | PA1 Comdty | CM | Palladium |
+| ZC | ZC1 Comdty | CM | Corn |
+| ZF | FC1 Comdty | CM | Feeder Cattle |
+| ZI | SI1 Comdty | CM | Silver |
+| ZO | ZO1 Comdty | CM | Oats |
+| ZR | ZR1 Comdty | CM | Rough Rice (electronic) |
+| ZU | CL1 Comdty | CM | WTI Crude Oil |
+| ZW | ZW1 Comdty | CM | Chicago Wheat |
+| ZZ | HE1 Comdty | CM | Lean Hogs |
+| GI | GI1 Comdty | CM | Goldman Sachs Commodity Index |
+| JO | OJ1 Comdty | CM | Orange Juice |
+| KC | KC1 Comdty | CM | Coffee |
+| KW | KW1 Comdty | CM | Kansas City Wheat |
+| NR | RR1 Comdty | CM | Rough Rice (legacy pit) |
+| ZG | GC1 Comdty | CM | Gold |
+| ZH | HO1 Comdty | CM | Heating Oil |
+| ZK | HG1 Comdty | CM | Copper |
+| ZL | ZL1 Comdty | CM | Soybean Oil |
+| ZN | NG1 Comdty | CM | Natural Gas |
+| ZP | PL1 Comdty | CM | Platinum |
+| ZT | LC1 Comdty | CM | Live Cattle |
+| EN | NQ1 Index | EQ | Nasdaq 100 E-Mini |
+| ES | ES1 Index | EQ | S&P 500 E-Mini |
+| MD | MID1 Index | EQ | S&P 400 E-Mini |
+| SC | SP1 Index | EQ | S&P 500 composite |
+| SP | SP1 Index | EQ | S&P 500 day session |
+| XX | VG1 Index | EQ | Dow Jones STOXX 50 |
+| YM | YM1 Index | EQ | Mini Dow Jones |
+| CA | CAC1 Index | EQ | CAC 40 Index |
+| ER | RTY1 Index | EQ | Russell 2000 E-Mini |
+| LX | Z 1 Index | EQ | FTSE 100 Index |
+| NK | NK1 Index | EQ | Nikkei 225 Index |
+| XU | VG1 Index | EQ | Dow Jones EURO STOXX 50 |
+| DT | RX1 Comdty | FI | Euro Bund |
+| FB | FV1 Comdty | FI | U.S. 5Y Treasury Note |
+| TY | TY1 Comdty | FI | U.S. 10Y Treasury Note |
+| UB | OE1 Comdty | FI | Euro Bobl |
+| US | US1 Comdty | FI | U.S. 30Y Treasury Bond |
+| AN | AD1 Curncy | FX | Australian Dollar |
+| DX | DX1 Curncy | FX | U.S. Dollar Index |
+| FN | EC1 Curncy | FX | Euro FX |
+| JN | JY1 Curncy | FX | Japanese Yen |
+| SN | SF1 Curncy | FX | Swiss Franc |
+| BN | BP1 Curncy | FX | British Pound |
+| CN | CD1 Curncy | FX | Canadian Dollar |
+| MP | MP1 Curncy | FX | Mexican Peso |
+
+**Notes**
+- `NR` only exists in the Pinnacle dataset as a pit-composite Rough Rice series; map it to the same Bloomberg contract (`RR1 Comdty`) used by `ZR` if you cannot source a separate pit session.
+- `SC` and `SP` both refer to S&P 500 futures (composite vs. day session). Bloomberg publishes a single continuous contract (`SP1 Index`), so both IDs share that feed.
+- `XX` and `XU` are historical labels for the Dow Jones (Euro) STOXX 50. Bloomberg consolidates them under `VG1 Index`.
+- Update the CSV if you need to add or swap assets; the converter script consumes it directly.
+
 ## Directory Structure
 
 ```

@@ -1,24 +1,107 @@
 #!/usr/bin/env python3
 """
-Convert Bloomberg CSV exports to Parquet format.
+Convert Bloomberg CSV/Excel exports to the Pinnacle-aligned Parquet layout.
 
 Usage:
     python scripts/convert_bloomberg_to_parquet.py
 
-This script:
-1. Reads all CSVs from data/bloomberg/raw/
-2. Converts each to Parquet format
-3. Saves to data/bloomberg/[SYMBOL].parquet
+Workflow:
+1. Reads symbol metadata from data/bloomberg/symbol_map.csv
+2. Scans data/bloomberg/raw for Excel/CSV exports
+3. Converts each column to Parquet using Pinnacle IDs for filenames
 
-Input format: Bloomberg CSV exports (date, price columns)
-Output format: Parquet with standardized schema (date index, price column)
+Input format: Bloomberg BDH exports (Excel worksheet or CSV per symbol)
+Output format: data/bloomberg/<PinnacleID>.parquet with standardized schema
 """
 
-import pandas as pd
-from pathlib import Path
+import csv
+import re
 import sys
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
-def convert_csv_to_parquet(csv_path: Path, output_dir: Path) -> None:
+import pandas as pd
+
+
+def normalize_security_name(value: str) -> str:
+    """Uppercase + strip non-alphanumerics so CL1 Comdty -> CL1COMDTY."""
+    return re.sub(r"[^A-Z0-9]", "", value.upper())
+
+
+def sanitize_symbol_for_filename(value: str) -> str:
+    """Fallback filename component when no map entry exists."""
+    clean = re.sub(r"[^A-Za-z0-9]+", "_", value.strip())
+    clean = clean.strip("_")
+    return clean or "unknown_symbol"
+
+
+SymbolEntry = Tuple[str, str]  # (pinnacle_id, bloomberg_ticker)
+
+
+class SymbolMapper:
+    """Lightweight helper that maps Bloomberg tickers to Pinnacle IDs."""
+
+    def __init__(self, csv_path: Path) -> None:
+        self.csv_path = csv_path
+        self.by_norm: Dict[str, List[SymbolEntry]] = {}
+        self._load()
+
+    def _load(self) -> None:
+        if not self.csv_path.exists():
+            print(f"WARNING: Symbol map not found at {self.csv_path} – filenames will use Bloomberg tickers.")
+            return
+
+        with self.csv_path.open(newline="") as fh:
+            reader = csv.DictReader(fh)
+            for row in reader:
+                ticker = row.get("bloomberg_ticker", "").strip()
+                pinnacle = row.get("pinnacle_id", "").strip()
+                if not ticker or not pinnacle:
+                    continue
+                info: SymbolEntry = (pinnacle, ticker)
+                for key in self._variant_keys(ticker, pinnacle):
+                    bucket = self.by_norm.setdefault(key, [])
+                    if info not in bucket:
+                        bucket.append(info)
+
+    def _variant_keys(self, ticker: str, pinnacle: str) -> set:
+        """Track multiple normalized aliases per security."""
+        variants = {normalize_security_name(ticker)}
+        variants.add(normalize_security_name(pinnacle))
+        suffixes = ("COMDTY", "INDEX", "CURNCY")
+        for suff in suffixes:
+            variant = normalize_security_name(ticker)
+            if variant.endswith(suff):
+                variants.add(variant[: -len(suff)])
+        if ticker.endswith("Index"):
+            variants.add(normalize_security_name(ticker.replace(" Index", "")))
+        return {v for v in variants if v}
+
+    def resolve(self, raw_label: str) -> List[SymbolEntry]:
+        """Return all Pinnacle IDs that map to a header/filename."""
+        cleaned = normalize_security_name(raw_label)
+        if cleaned in self.by_norm:
+            return self.by_norm[cleaned]
+        # Fallback: substring search to catch headers like 'CL1COMDTYPX_LAST'
+        matches: List[SymbolEntry] = []
+        for key, info in self.by_norm.items():
+            if key and key in cleaned:
+                for entry in info:
+                    if entry not in matches:
+                        matches.append(entry)
+        return matches
+
+
+def determine_output_symbols(raw_label: str, mapper: SymbolMapper) -> List[Tuple[str, Optional[str]]]:
+    """Return all output symbol targets for a given raw label."""
+    if mapper:
+        matches = mapper.resolve(raw_label)
+        if matches:
+            return [(pinnacle, ticker) for pinnacle, ticker in matches]
+    return [(sanitize_symbol_for_filename(raw_label), None)]
+
+
+def convert_csv_to_parquet(csv_path: Path, output_dir: Path, mapper: SymbolMapper) -> None:
     """
     Convert a single Bloomberg CSV to Parquet.
 
@@ -26,8 +109,11 @@ def convert_csv_to_parquet(csv_path: Path, output_dir: Path) -> None:
         csv_path: Path to input CSV file
         output_dir: Directory to save Parquet file
     """
-    symbol = csv_path.stem
-    print(f"Processing {symbol}...")
+    raw_symbol = csv_path.stem
+    targets = determine_output_symbols(raw_symbol, mapper)
+    pretty_name = targets[0][1] or raw_symbol
+    target_labels = ", ".join(sym for sym, _ in targets)
+    print(f"Processing {pretty_name} → {target_labels}...")
 
     try:
         # Read CSV - Bloomberg typically has date in first column, price in second
@@ -49,17 +135,17 @@ def convert_csv_to_parquet(csv_path: Path, output_dir: Path) -> None:
         # Remove any NaN prices
         df = df.dropna()
 
-        # Save to Parquet
-        output_path = output_dir / f"{symbol}.parquet"
-        df.to_parquet(output_path, engine='pyarrow', compression='snappy')
-
-        print(f"  ✓ Converted {symbol}: {len(df)} rows ({df.index.min()} to {df.index.max()})")
+        # Save to Parquet (duplicate if multiple Pinnacle IDs map to the same ticker)
+        for output_symbol, _ in targets:
+            output_path = output_dir / f"{output_symbol}.parquet"
+            df.to_parquet(output_path, engine='pyarrow', compression='snappy')
+            print(f"  ✓ Converted {output_symbol}: {len(df)} rows ({df.index.min()} to {df.index.max()})")
 
     except Exception as e:
-        print(f"  ERROR processing {symbol}: {e}")
+        print(f"  ERROR processing {pretty_name}: {e}")
 
 
-def convert_excel_to_parquet(excel_path: Path, output_dir: Path) -> None:
+def convert_excel_to_parquet(excel_path: Path, output_dir: Path, mapper: SymbolMapper) -> None:
     """
     Convert Bloomberg Excel export (multiple symbols) to individual Parquet files.
 
@@ -84,25 +170,26 @@ def convert_excel_to_parquet(excel_path: Path, output_dir: Path) -> None:
 
         # Each remaining column is a symbol
         for symbol_col in df.columns:
-            symbol = symbol_col.replace(' Comdty', '').replace(' ', '_')
-
-            print(f"Processing {symbol}...")
+            targets = determine_output_symbols(symbol_col, mapper)
+            pretty_name = targets[0][1] or symbol_col
+            target_labels = ", ".join(sym for sym, _ in targets)
+            print(f"Processing {pretty_name} → {target_labels}...")
 
             # Extract single symbol series
             prices = df[symbol_col].dropna()
 
             if len(prices) == 0:
-                print(f"  WARNING: {symbol} has no data")
+                print(f"  WARNING: {pretty_name} has no data")
                 continue
 
             # Create DataFrame with standard schema
             symbol_df = pd.DataFrame({'price': prices})
 
             # Save to Parquet
-            output_path = output_dir / f"{symbol}.parquet"
-            symbol_df.to_parquet(output_path, engine='pyarrow', compression='snappy')
-
-            print(f"  ✓ Converted {symbol}: {len(symbol_df)} rows ({symbol_df.index.min()} to {symbol_df.index.max()})")
+            for output_symbol, _ in targets:
+                output_path = output_dir / f"{output_symbol}.parquet"
+                symbol_df.to_parquet(output_path, engine='pyarrow', compression='snappy')
+                print(f"  ✓ Converted {output_symbol}: {len(symbol_df)} rows ({symbol_df.index.min()} to {symbol_df.index.max()})")
 
     except Exception as e:
         print(f"  ERROR processing Excel file: {e}")
@@ -114,6 +201,8 @@ def main():
     project_root = Path(__file__).parent.parent
     raw_dir = project_root / "data" / "bloomberg" / "raw"
     output_dir = project_root / "data" / "bloomberg"
+    symbol_map_path = project_root / "data" / "bloomberg" / "symbol_map.csv"
+    mapper = SymbolMapper(symbol_map_path)
 
     # Create output directory if needed
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -132,7 +221,7 @@ def main():
         print()
 
         for excel_file in excel_files:
-            convert_excel_to_parquet(excel_file, output_dir)
+            convert_excel_to_parquet(excel_file, output_dir, mapper)
 
     # Also check for individual CSVs
     csv_files = list(raw_dir.glob("*.csv"))
@@ -143,7 +232,7 @@ def main():
         print()
 
         for csv_file in csv_files:
-            convert_csv_to_parquet(csv_file, output_dir)
+            convert_csv_to_parquet(csv_file, output_dir, mapper)
 
     if not excel_files and not csv_files:
         print(f"ERROR: No CSV or Excel files found in {raw_dir}")

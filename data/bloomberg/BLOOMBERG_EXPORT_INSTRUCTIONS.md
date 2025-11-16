@@ -8,27 +8,22 @@
 
 ## Step 2: Symbol List Setup
 
-In Column A, starting from A2, enter all your symbols:
-
-```
-A2: CL1 Comdty
-A3: BN1 Comdty
-A4: ZN1 Comdty
-A5: ES1 Comdty
-... (continue for all 50 symbols)
-A51: [Your 50th symbol]
-```
+1. Open [`symbol_map.csv`](./symbol_map.csv) (or the copy in the README).
+2. In Excel set:
+   - `A1 = Pinnacle ID`
+   - `B1 = Bloomberg Ticker`
+3. Paste the 50 rows from the table below so every Pinnacle ID aligns with its Bloomberg ticker. The `BDH()` formula will reference **column B** while column **A** preserves the IDs needed by the paper.
 
 ## Step 3: Bulk Download Formula
 
 In cell C1, enter this formula:
 
 ```excel
-=BDH(A2:A51,"PX_LAST","19900101","20231231","Dir=V")
+=BDH($B$2:$B$51,"PX_LAST","19900101","20231231","Dir=V")
 ```
 
 **Formula breakdown:**
-- `A2:A51` = Range of all your symbols
+- `B2:B51` = Bloomberg ticker strings listed below
 - `"PX_LAST"` = Last price field
 - `"19900101"` = Start date (Jan 1, 1990)
 - `"20231231"` = End date (Dec 31, 2023)
@@ -74,14 +69,58 @@ Try these Bloomberg fields if PX_LAST gives errors:
 
 Copy these into Excel Column A (A2:A51):
 
-```
-CL1 Comdty
-BN1 Comdty
-ZN1 Comdty
-ES1 Comdty
-```
-
-(Add your complete list of 50 futures symbols here)
+| Pinnacle ID | Bloomberg ticker |
+|-------------|------------------|
+| CC | CC1 Comdty |
+| DA | DA1 Comdty |
+| LB | LB1 Comdty |
+| SB | SB1 Comdty |
+| ZA | PA1 Comdty |
+| ZC | ZC1 Comdty |
+| ZF | FC1 Comdty |
+| ZI | SI1 Comdty |
+| ZO | ZO1 Comdty |
+| ZR | ZR1 Comdty |
+| ZU | CL1 Comdty |
+| ZW | ZW1 Comdty |
+| ZZ | HE1 Comdty |
+| GI | GI1 Comdty |
+| JO | OJ1 Comdty |
+| KC | KC1 Comdty |
+| KW | KW1 Comdty |
+| NR | RR1 Comdty |
+| ZG | GC1 Comdty |
+| ZH | HO1 Comdty |
+| ZK | HG1 Comdty |
+| ZL | ZL1 Comdty |
+| ZN | NG1 Comdty |
+| ZP | PL1 Comdty |
+| ZT | LC1 Comdty |
+| EN | NQ1 Index |
+| ES | ES1 Index |
+| MD | MID1 Index |
+| SC | SP1 Index |
+| SP | SP1 Index |
+| XX | VG1 Index |
+| YM | YM1 Index |
+| CA | CAC1 Index |
+| ER | RTY1 Index |
+| LX | Z 1 Index |
+| NK | NK1 Index |
+| XU | VG1 Index |
+| DT | RX1 Comdty |
+| FB | FV1 Comdty |
+| TY | TY1 Comdty |
+| UB | OE1 Comdty |
+| US | US1 Comdty |
+| AN | AD1 Curncy |
+| DX | DX1 Curncy |
+| FN | EC1 Curncy |
+| JN | JY1 Curncy |
+| SN | SF1 Curncy |
+| BN | BP1 Curncy |
+| CN | CD1 Curncy |
+| MP | MP1 Curncy |
 
 ---
 
@@ -106,4 +145,4 @@ ES1 Comdty
 ## Next Step
 
 After exporting, use the conversion script at:
-`scripts/convert_bloomberg_csv_to_parquet.py`
+`scripts/convert_bloomberg_to_parquet.py`

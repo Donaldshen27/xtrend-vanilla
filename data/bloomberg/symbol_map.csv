@@ -1,0 +1,51 @@
+pinnacle_id,asset_class,description,bloomberg_ticker,notes
+CC,CM,Cocoa,CC1 Comdty,ICE US cocoa generic #1 contract
+DA,CM,Class III Milk,DA1 Comdty,CME Class III milk (Globex)
+LB,CM,Random Length Lumber,LB1 Comdty,CME lumber contract
+SB,CM,Sugar #11,SB1 Comdty,ICE No.11 sugar
+ZA,CM,Palladium,PA1 Comdty,NYMEX palladium (Pinnacle symbol ZA)
+ZC,CM,Corn,ZC1 Comdty,CBOT corn front-month continuous
+ZF,CM,Feeder Cattle,FC1 Comdty,CME feeder cattle (FC contract)
+ZI,CM,Silver,SI1 Comdty,COMEX silver
+ZO,CM,Oats,ZO1 Comdty,CBOT oats
+ZR,CM,Rough Rice (electronic),ZR1 Comdty,CBOT rough rice on Globex
+ZU,CM,WTI Crude Oil,CL1 Comdty,NYMEX light sweet crude
+ZW,CM,Chicago Wheat,ZW1 Comdty,CBOT soft red winter wheat
+ZZ,CM,Lean Hogs,HE1 Comdty,CME lean hogs (HE contract)
+GI,CM,Goldman Sachs Commodity Index,GI1 Comdty,CME GSCI index future
+JO,CM,Orange Juice,OJ1 Comdty,ICE FCOJ-A
+KC,CM,Coffee,KC1 Comdty,ICE arabica coffee
+KW,CM,Kansas City Wheat,KW1 Comdty,KCBT hard red winter wheat
+NR,CM,Rough Rice (legacy pit),RR1 Comdty,Map NR to the pit composite if ZR unavailable
+ZG,CM,Gold,GC1 Comdty,COMEX gold
+ZH,CM,Heating Oil,HO1 Comdty,NYMEX heating oil
+ZK,CM,Copper,HG1 Comdty,COMEX copper
+ZL,CM,Soybean Oil,ZL1 Comdty,CBOT soybean oil
+ZN,CM,Natural Gas,NG1 Comdty,NYMEX Henry Hub gas
+ZP,CM,Platinum,PL1 Comdty,NYMEX platinum
+ZT,CM,Live Cattle,LC1 Comdty,CME live cattle (LE contract)
+EN,EQ,Nasdaq 100 E-Mini,NQ1 Index,CME E-mini Nasdaq
+ES,EQ,S&P 500 E-Mini,ES1 Index,CME E-mini S&P 500
+MD,EQ,S&P 400 E-Mini,MID1 Index,CME E-mini S&P MidCap 400
+SC,EQ,S&P 500 composite,SP1 Index,Full-size S&P 500 (Pinnacle SC)
+SP,EQ,S&P 500 day session,SP1 Index,Bloomberg has a single SP1 continuous future
+XX,EQ,Dow Jones STOXX 50,VG1 Index,Eurex Euro STOXX 50 (legacy Dow Jones branding)
+YM,EQ,Mini Dow Jones,YM1 Index,CME E-mini Dow ($5)
+CA,EQ,CAC 40 Index,CAC1 Index,Euronext CAC40 future
+ER,EQ,Russell 2000 E-Mini,RTY1 Index,CME e-mini Russell 2000 (RTY)
+LX,EQ,FTSE 100 Index,Z 1 Index,ICE FTSE 100 (Z) future
+NK,EQ,Nikkei 225 Index,NK1 Index,JPX Nikkei 225 (Osaka)
+XU,EQ,Dow Jones EURO STOXX 50,VG1 Index,Same Euro STOXX 50 contract as XX
+DT,FI,Euro Bund,RX1 Comdty,Eurex Bund (FGBL)
+FB,FI,U.S. 5Y Treasury Note,FV1 Comdty,CME 5Y note future
+TY,FI,U.S. 10Y Treasury Note,TY1 Comdty,CME 10Y note future
+UB,FI,Euro Bobl,OE1 Comdty,Eurex Bobl (FGBM)
+US,FI,U.S. 30Y Treasury Bond,US1 Comdty,CME 30Y T-bond
+AN,FX,Australian Dollar,AD1 Curncy,CME Aussie dollar future
+DX,FX,U.S. Dollar Index,DX1 Curncy,ICE dollar index
+FN,FX,Euro FX,EC1 Curncy,CME euro FX future (6E)
+JN,FX,Japanese Yen,JY1 Curncy,CME yen future (6J)
+SN,FX,Swiss Franc,SF1 Curncy,CME Swiss franc (6S)
+BN,FX,British Pound,BP1 Curncy,CME sterling (6B)
+CN,FX,Canadian Dollar,CD1 Curncy,CME Canadian dollar (6C)
+MP,FX,Mexican Peso,MP1 Curncy,CME Mexican peso (6M)

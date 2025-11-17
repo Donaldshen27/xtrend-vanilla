@@ -54,6 +54,8 @@ Follow the detailed instructions in: [`BLOOMBERG_EXPORT_INSTRUCTIONS.md`](./BLOO
 
 ### 2. At Home - Convert to Parquet
 
+**Option A: Standard Excel/CSV exports** (recommended for new exports)
+
 Place your Bloomberg export in `data/bloomberg/raw/`:
 - Excel file: `data/bloomberg/raw/bloomberg_export.xlsx`
 - OR CSV files: `data/bloomberg/raw/*.csv`
@@ -61,7 +63,23 @@ Place your Bloomberg export in `data/bloomberg/raw/`:
 Run the conversion script:
 
 ```bash
-python scripts/convert_bloomberg_to_parquet.py
+uv run python scripts/convert_bloomberg_to_parquet.py
+```
+
+**Option B: Wide-format CSV (legacy format)**
+
+If you have wide-format CSVs (ticker, date, price, empty, ticker, date, price, ...):
+
+1. Reshape to individual CSV files:
+```bash
+uv run python scripts/reshape_bloomberg_csv.py \
+  data/bloomberg/future_data/bloomberg_historical_data_50_original.csv \
+  data/bloomberg/future_data/original_individual_csvs
+```
+
+2. Then convert to parquet:
+```bash
+uv run python scripts/convert_bloomberg_to_parquet.py
 ```
 
 **Output:** Creates `.parquet` files in `data/bloomberg/`
@@ -165,13 +183,26 @@ To stay faithful to the X-Trend paper portfolio (Tables 5 & 6 in *Few-Shot Learn
 data/bloomberg/
 ├── README.md                              # This file
 ├── BLOOMBERG_EXPORT_INSTRUCTIONS.md       # Detailed Bloomberg Terminal instructions
+├── XTREND_ASSET_EXPANSION_NOTES.md        # 72-asset expansion notes
+├── symbol_map.csv                         # Pinnacle ID ↔ Bloomberg ticker mapping
 ├── raw/                                   # Place Bloomberg exports here
 │   ├── bloomberg_export.xlsx              # Excel export from Terminal
 │   └── *.csv                              # OR individual CSV files
+├── future_data/                           # Wide-format CSVs (50 + 24 assets)
+│   ├── bloomberg_historical_data_50_original.csv    # Original 50 tickers
+│   ├── bloomberg_extend_tickers.csv                 # Extended 24 tickers
+│   ├── original_individual_csvs/          # Reshaped: 48 CSV files
+│   │   ├── CC1_Comdty.csv
+│   │   ├── CL1_Comdty.csv
+│   │   └── ...
+│   └── extended_individual_csvs/          # Reshaped: 24 CSV files
+│       ├── LMAHDS03_Comdty.csv            # LME Aluminum
+│       ├── BTCA_Curncy.csv                # CME Bitcoin
+│       └── ...
 ├── CL1.parquet                            # Converted Parquet files
 ├── BN1.parquet
 ├── ES1.parquet
-└── ...                                    # All 50 symbols
+└── ...                                    # All symbols
 ```
 
 ## 2025-11-16 Export Snapshot (Reference USB Pull)
@@ -356,17 +387,75 @@ BN1: 7200 rows, 1992-06-15 to 2023-12-29
 4. ⏭️ Test with initial development symbols (BN, ZN, ES)
 5. ⏭️ Integrate with X-Trend pipeline
 
+## Wide-Format CSV Workflow (72 Assets)
+
+The project contains historical wide-format Bloomberg exports with 72 total assets:
+- **50 original tickers** (from `bloomberg_historical_data_50_original.csv`)
+- **24 extended tickers** (from `bloomberg_extend_tickers.csv`)
+
+### Reshaping Wide-Format CSVs
+
+Wide-format structure (problematic):
+```
+ticker_name, date, price, empty, ticker_name, date, price, empty, ...
+```
+
+Use the reshape script to convert to individual CSV files:
+
+```bash
+# Reshape original 50 tickers
+uv run python scripts/reshape_bloomberg_csv.py \
+  data/bloomberg/future_data/bloomberg_historical_data_50_original.csv \
+  data/bloomberg/future_data/original_individual_csvs
+
+# Reshape extended 24 tickers
+uv run python scripts/reshape_bloomberg_csv.py \
+  data/bloomberg/future_data/bloomberg_extend_tickers.csv \
+  data/bloomberg/future_data/extended_individual_csvs
+```
+
+**Output format** (each CSV):
+```csv
+date,price
+1990-01-03,929
+1990-01-04,940
+...
+```
+
+**Results:**
+- `original_individual_csvs/`: 48 files (352,677 total rows)
+- `extended_individual_csvs/`: 24 files (166,321 total rows)
+
+### Extended Asset Classes
+
+The 24 extended tickers add diversity for X-Trend few-shot learning:
+
+**LME Metals (6):** LMAHDS03 (Aluminum), LMZSDS03 (Zinc), LMCADS03 (Copper), LMNIDS03 (Nickel), LMPBDS03 (Lead), LMSNDS03 (Tin)
+
+**Global Indices (4):** GX1 (DAX), TP1 (TOPIX), HI1 (Hang Seng), ZTSA (JSE Top 40)
+
+**Crypto Futures (4):** BTCA (Bitcoin), DCRA (Ether), MERA (Micro Ether), BMR (Micro Bitcoin)
+
+**Spot Precious Metals (4):** XAUUSD (Gold), XAGUSD (Silver), XPTUSD (Platinum), XPDUSD (Palladium)
+
+**Other (6):** XB1 (RBOB Gasoline), VIX (VIX Index), FF1/FF4 (Fed Funds), TU1 (2Y Note), LF98OAS (Credit Spread)
+
+See `XTREND_ASSET_EXPANSION_NOTES.md` for detailed rationale.
+
 ## Files Reference
 
 | File | Purpose |
 |------|---------|
-| `scripts/generate_bloomberg_workbook.py` | Generate Excel workbook with BDH formula |
-| `scripts/convert_bloomberg_to_parquet.py` | CSV/Excel → Parquet converter |
 | `BLOOMBERG_EXPORT_INSTRUCTIONS.md` | Step-by-step Bloomberg Terminal guide |
+| `XTREND_ASSET_EXPANSION_NOTES.md` | 72-asset expansion rationale and strategy |
+| `scripts/generate_bloomberg_workbook.py` | Generate Excel workbook with BDH formula |
+| `scripts/reshape_bloomberg_csv.py` | Wide-format CSV → Individual CSV reshaper |
+| `scripts/convert_bloomberg_to_parquet.py` | CSV/Excel → Parquet converter |
 | `symbol_map.csv` | 50-asset symbol mapping (Pinnacle → Bloomberg) |
 | `symbol_map_expanded.csv` | 72-asset symbol mapping (includes new additions) |
 | `xtrend/data/sources.py` | Data source classes (including `BloombergParquetSource`) |
 | `conf/data/futures.yaml` | Data source configuration |
+| `docs/plans/2025-11-16-bloomberg-csv-redesign.md` | CSV redesign documentation |
 
 ## Questions?
 

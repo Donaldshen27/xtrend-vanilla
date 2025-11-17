@@ -28,10 +28,11 @@ def run_cpd_cached(asset: str, start_date, end_date,
     Returns:
         tuple: (segments, prices, config)
     """
-    from xtrend.data import BloombergParquetSource
+    from xtrend.data.sources import BloombergParquetSource
 
-    data_source = BloombergParquetSource()
-    prices = data_source.load_symbol(asset, start_date, end_date)['Close']
+    data_source = BloombergParquetSource(root_path="data/bloomberg/processed")
+    prices_df = data_source.load_prices([asset], start=start_date, end=end_date)
+    prices = prices_df[asset]  # Extract the series for this asset
 
     config = CPDConfig(
         lookback=lookback,
@@ -65,7 +66,7 @@ def render_regimes_tab(data_source):
     # Asset selection
     selected_asset = st.selectbox(
         "Select asset for regime analysis",
-        data_source.available_symbols()
+        data_source.symbols()
     )
 
     date_range = st.date_input(

@@ -129,7 +129,26 @@ class RegimeSegments:
             passed=no_gaps
         ))
 
-        # 4. Severity calibration
+        # 4. Full coverage check
+        full_coverage = (
+            len(sorted_segs) > 0 and
+            sorted_segs[0].start_idx == 0 and
+            sorted_segs[-1].end_idx == len(prices) - 1
+        )
+
+        if sorted_segs:
+            actual_range = f"[{sorted_segs[0].start_idx}, {sorted_segs[-1].end_idx}]"
+        else:
+            actual_range = "No segments"
+
+        checks.append(ValidationCheck(
+            name="Full coverage",
+            expected=f"[0, {len(prices) - 1}]",
+            actual=actual_range,
+            passed=full_coverage
+        ))
+
+        # 5. Severity calibration
         severities = [seg.severity for seg in self.segments]
         severity_p90 = np.percentile(severities, 90) if severities else 0
 

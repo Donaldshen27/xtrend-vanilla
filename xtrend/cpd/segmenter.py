@@ -38,13 +38,24 @@ class GPCPDSegmenter:
         segments = []
         current_end = len(prices) - 1
 
-        while current_end >= self.config.min_length:
+        while current_end >= 0:
             window_start = max(0, current_end - self.config.lookback + 1)
             window = prices.iloc[window_start:current_end + 1]
 
-            # Handle leftover stub at beginning
+            # Handle leftover stub at beginning - merge with previous segment
             if len(window) < self.config.min_length:
-                if current_end + 1 >= self.config.min_length:
+                if segments:
+                    # Extend last segment backward to include stub
+                    last_seg = segments[-1]
+                    segments[-1] = RegimeSegment(
+                        start_idx=0,
+                        end_idx=last_seg.end_idx,
+                        severity=last_seg.severity,
+                        start_date=prices.index[0],
+                        end_date=last_seg.end_date
+                    )
+                elif current_end >= 0:
+                    # No segments yet, create one covering the stub
                     segments.append(RegimeSegment(
                         start_idx=0,
                         end_idx=current_end,
@@ -74,15 +85,18 @@ class GPCPDSegmenter:
 
                 if (regime_length >= self.config.min_length and
                     left_length >= self.config.min_length):
-                    # Valid CP
+                    # Valid CP - clamp to max_length
+                    regime_length = min(self.config.max_length, regime_length)
+                    start_idx = current_end - regime_length + 1
+
                     segments.append(RegimeSegment(
-                        start_idx=t_cp_absolute,
+                        start_idx=start_idx,
                         end_idx=current_end,
                         severity=severity,
-                        start_date=prices.index[t_cp_absolute],
+                        start_date=prices.index[start_idx],
                         end_date=prices.index[current_end]
                     ))
-                    current_end = t_cp_absolute - 1
+                    current_end = start_idx - 1
                 else:
                     # CP too close to edge, treat as no CP
                     regime_len = min(self.config.max_length, current_end - window_start + 1)

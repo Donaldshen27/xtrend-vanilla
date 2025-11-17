@@ -11,10 +11,11 @@ from xtrend.cpd import CPDConfig, GPCPDSegmenter
 @st.cache_data
 def run_cpd_cached(asset: str, start_date, end_date,
                    lookback: int, threshold: float,
-                   min_length: int, max_length: int):
+                   min_length: int, max_length: int,
+                   data_root_path: str = "data/bloomberg/processed"):
     """Run GP-CPD with proper caching.
 
-    Cache key = (asset, dates, hyperparams)
+    Cache key = (asset, dates, hyperparams, data_root_path)
 
     Args:
         asset: Asset symbol
@@ -24,13 +25,14 @@ def run_cpd_cached(asset: str, start_date, end_date,
         threshold: Severity threshold
         min_length: Min regime length
         max_length: Max regime length
+        data_root_path: Root path for Bloomberg Parquet files (for testability)
 
     Returns:
         tuple: (segments, prices, config)
     """
     from xtrend.data.sources import BloombergParquetSource
 
-    data_source = BloombergParquetSource(root_path="data/bloomberg/processed")
+    data_source = BloombergParquetSource(root_path=data_root_path)
     prices_df = data_source.load_prices([asset], start=start_date, end=end_date)
     prices = prices_df[asset]  # Extract the series for this asset
 
@@ -103,7 +105,8 @@ def render_regimes_tab(data_source):
 
                 segments, prices, config = run_cpd_cached(
                     selected_asset, date_range[0], date_range[1],
-                    lookback, threshold, min_length, max_length
+                    lookback, threshold, min_length, max_length,
+                    data_root_path=str(data_source.root_path)
                 )
 
                 status.update(label="Segmentation complete!", state="complete")
@@ -136,15 +139,18 @@ def render_regimes_tab(data_source):
         prices = results['prices']
 
         # Summary metrics
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Total Regimes", len(segments.segments))
-        with col2:
-            avg_len = np.mean([s.end_idx - s.start_idx + 1 for s in segments.segments])
-            st.metric("Avg Length", f"{avg_len:.1f} days")
-        with col3:
-            high_sev = sum(s.severity >= 0.9 for s in segments.segments) / len(segments.segments)
-            st.metric("High Severity %", f"{high_sev:.1%}")
+        if len(segments.segments) == 0:
+            st.warning("⚠️ No regimes detected. Try adjusting parameters (lower threshold, increase date range, or relax min_length).")
+        else:
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Regimes", len(segments.segments))
+            with col2:
+                avg_len = np.mean([s.end_idx - s.start_idx + 1 for s in segments.segments])
+                st.metric("Avg Length", f"{avg_len:.1f} days")
+            with col3:
+                high_sev = sum(s.severity >= 0.9 for s in segments.segments) / len(segments.segments)
+                st.metric("High Severity %", f"{high_sev:.1%}")
 
         # Three sub-tabs
         tab1, tab2 = st.tabs([

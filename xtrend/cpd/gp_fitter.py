@@ -119,7 +119,8 @@ class GPFitter:
 
         # Grid search over candidate change-point locations
         # Use finer grid for better accuracy
-        candidates = range(min_segment_length, n - min_segment_length, max(1, n // 30))
+        # Note: upper bound is inclusive to handle edge case when n = 2*min_segment_length
+        candidates = range(min_segment_length, n - min_segment_length + 1, max(1, n // 30))
 
         for t_cp in candidates:
             # Split data at candidate change-point

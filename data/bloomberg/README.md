@@ -15,13 +15,27 @@ Bloomberg Terminal (Excel) → CSV/Excel → Parquet → BloombergParquetSource
 
 ### 0. Before Going to Bloomberg Terminal (Recommended)
 
+#### Install Python dependencies (first time only)
+
+The helper scripts require `openpyxl`, `pandas`, and `pyarrow`. Create a virtual environment (recommended) and install the bundled requirements:
+
+```bash
+python3 -m venv .venv-bloomberg
+source .venv-bloomberg/bin/activate
+pip install -r requirements/bloomberg.txt
+```
+
+Run the commands from the project root so the `requirements/` folder is in the working directory.
+
+> Skip the `source` step on Windows; run `.venv-bloomberg\Scripts\activate` instead.
+
 Generate the Excel workbook with pre-configured BDH formula:
 
 ```bash
 # For 50-asset set
 python scripts/generate_bloomberg_workbook.py
 
-# For 72-asset set (recommended)
+# For 72-asset set (recommended; currently 69 fully-specified tickers)
 python scripts/generate_bloomberg_workbook.py --expanded
 ```
 
@@ -51,6 +65,8 @@ python scripts/convert_bloomberg_to_parquet.py
 ```
 
 **Output:** Creates `.parquet` files in `data/bloomberg/`
+
+> The converter auto-loads both `symbol_map.csv` and `symbol_map_expanded.csv` when present. Use `--symbol-map path/to/custom.csv` (repeatable) to override.
 
 Example:
 ```
@@ -157,6 +173,85 @@ data/bloomberg/
 ├── ES1.parquet
 └── ...                                    # All 50 symbols
 ```
+
+## 2025-11-16 Export Snapshot (Reference USB Pull)
+
+The raw files delivered from the November 16, 2025 Bloomberg session are stored at
+`data/bloomberg/future_data-20251117T014559Z-1-001.zip`. The archive contains:
+
+| File | Notes |
+|------|-------|
+| `future_data/bloomberg_historical_data_50_original.csv` | Original 50-symbol context set pulled from the Pinnacle table. |
+| `future_data/bloomberg_extend_tickers.csv` | 24 additional instruments (LME forwards, crypto, microstructure stress proxies). |
+
+Extract with:
+
+```bash
+unzip data/bloomberg/future_data-20251117T014559Z-1-001.zip -d data/bloomberg
+```
+
+### CSV layout (four-column blocks)
+
+Bloomberg wrote each asset into **four adjacent columns**: `[Ticker Label, Date, Price, blank]`. The first row holds the ticker string, and all following rows in that block hold the date/price pairs. To reshape into a standard wide table (dates down, tickers across), drop the empty columns and stack the `[Date, Price]` pairs per ticker. Example:
+
+```python
+import pandas as pd
+
+raw = pd.read_csv("future_data/bloomberg_extend_tickers.csv", header=None)
+series = []
+for offset in range(0, raw.shape[1], 4):
+    ticker = raw.iat[0, offset]
+    if not isinstance(ticker, str) or not ticker.strip():
+        continue
+    block = raw.iloc[1:, [offset + 1, offset + 2]].dropna()
+    block.columns = ["date", ticker.strip()]
+    block["date"] = pd.to_datetime(block["date"])
+    series.append(block.set_index("date"))
+
+extended_df = pd.concat(series, axis=1).sort_index()
+```
+
+Use the same pattern for the `bloomberg_historical_data_50_original.csv` file.
+
+### Extended ticker coverage (Nov 16, 2025 pull)
+
+| Ticker | Description | Date Range | Rows |
+|--------|-------------|------------|------|
+| LMAHDS03 Comdty | LME Aluminum 3M forward | 1990-01-02 → 2025-11-14 | 9,065 |
+| LMZSDS03 Comdty | LME Zinc 3M forward | 1990-01-02 → 2025-11-14 | 9,067 |
+| LMCADS03 Comdty | LME Copper 3M forward | 1990-01-02 → 2025-11-14 | 9,065 |
+| LMNIDS03 Comdty | LME Nickel 3M forward | 1990-01-02 → 2025-11-14 | 9,056 |
+| LMPBDS03 Comdty | LME Lead 3M forward | 1990-01-02 → 2025-11-14 | 9,062 |
+| LMSNDS03 Comdty | LME Tin 3M forward | 1990-01-02 → 2025-11-14 | 9,063 |
+| GX1 Index | Eurex DAX future | 1990-11-23 → 2025-11-14 | 8,867 |
+| TP1 Index | TOPIX large future | 1990-05-16 → 2025-11-14 | 8,716 |
+| HI1 Index | Hang Seng future | 1992-04-01 → 2025-11-14 | 8,356 |
+| ZTSA Index | FTSE/JSE Top 40 | 2013-12-09 → 2025-11-14 | 1,258 |
+| BTCA Curncy | Bitcoin aggregate index | 2025-05-30 → 2025-11-14 | 118 |
+| DCRA Curncy | Decred aggregate index | 2025-05-30 → 2025-11-14 | 118 |
+| MERA Curncy | Monero aggregate index | 2025-05-30 → 2025-11-14 | 118 |
+| BMR Curncy | Bitcoin Cash aggregate index | 2023-02-28 → 2025-11-14 | 683 |
+| XAUUSD Curncy | Gold spot vs USD | 1990-01-02 → 2025-11-14 | 9,304 |
+| XAGUSD Curncy | Silver spot vs USD | 1990-01-02 → 2025-11-14 | 9,303 |
+| XPTUSD Curncy | Platinum spot vs USD | 1990-01-01 → 2025-11-14 | 9,346 |
+| XPDUSD Curncy | Palladium spot vs USD | 1993-10-29 → 2025-11-14 | 8,256 |
+| XB1 Comdty | NYMEX RBOB gasoline | 2005-10-03 → 2025-11-14 | 5,068 |
+| VIX Index | CBOE Volatility Index | 1990-01-02 → 2025-11-14 | 9,059 |
+| FF1 Comdty | CME Fed Funds (front) | 1990-01-02 → 2025-11-14 | 9,035 |
+| FF4  Comdty | CME Fed Funds (4th contract) | 1990-01-02 → 2025-11-14 | 9,036 |
+| TU1 Comdty | CBOT 2Y Treasury Note | 1990-06-25 → 2025-11-14 | 8,913 |
+| LF98OAS Index | ICE/BofA US HY OAS | 1994-01-31 → 2025-11-14 | 6,413 |
+
+These 24 additions extend the context set beyond the 50 futures in Table 5 of the paper. The workbook generator currently ships 69 concrete tickers (50 originals + 19 of the planned additions) until Bloomberg publishes SOL/XRP codes; use the reference CSV above if you need the full list immediately.
+
+### Notable quirks in the 50-symbol CSV
+
+- Several agricultural contracts roll over to new tickers mid-history; e.g. `ZC1 Comdty` only spans 2006-11-16 → 2009-12-30 (197 rows) in this pull.
+- Thin or discontinued contracts (`ZR1 Comdty`, `HE1 Comdty`, `MID1 Index`) only show hundreds of rows, so expect #N/A gaps when you rebuild the workbook.
+- Some columns are duplicated because Pinnacle listed separate session IDs (e.g. both `SC` and `SP` map to `SP1 Index`; both appear in the CSV).
+- The `YM1  Comdty` header retains multiple spaces from Bloomberg; trim whitespace before feeding into scripts.
+
+Keep these quirks in mind when validating conversions so you do not mistake genuine contract limits for download errors.
 
 ## Parquet File Schema
 

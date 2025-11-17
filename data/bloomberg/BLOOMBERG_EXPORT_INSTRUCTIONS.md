@@ -18,6 +18,10 @@ python scripts/generate_bloomberg_workbook.py --expanded --start 1995-01-01 --en
 
 This creates an Excel file with the BDH formula pre-configured. Just copy to USB, open at Bloomberg Terminal, and press Enter in cell F1.
 
+> Dependencies: `openpyxl`, `pandas`, and `pyarrow`. Install once with `python3 -m venv .venv-bloomberg && source .venv-bloomberg/bin/activate && pip install -r requirements/bloomberg.txt`.
+
+> The expanded workbook currently includes **69 fully-configured tickers** (50 original + 19 new). Add SOL/XRP once Bloomberg codes are confirmed to reach the planned 72.
+
 **Manual Setup:**
 **For original 50 assets:** See [Section A](#section-a-original-50-assets)
 **For expanded 72 assets:** See [Section B](#section-b-expanded-72-asset-set)
@@ -44,7 +48,7 @@ Run the workbook generator script before going to the terminal:
 python scripts/generate_bloomberg_workbook.py --expanded
 ```
 
-This creates `data/bloomberg/raw/bloomberg_export_72assets.xlsx` with all symbols and the BDH formula pre-configured.
+This creates `data/bloomberg/raw/bloomberg_export_72assets.xlsx` with all symbols and the BDH formula pre-configured (currently 69 populated tickers; add SOL/XRP later when Bloomberg codes are published).
 
 ### Manual Method
 
@@ -54,7 +58,7 @@ This creates `data/bloomberg/raw/bloomberg_export_72assets.xlsx` with all symbol
 2. Create a new workbook
 3. Set up your symbol list
 
-### Step 2: Symbol List Setup (72 Assets)
+### Step 2: Symbol List Setup (Expanded Set)
 
 1. Open [`symbol_map_expanded.csv`](./symbol_map_expanded.csv)
 2. In Excel set:
@@ -63,18 +67,18 @@ This creates `data/bloomberg/raw/bloomberg_export_72assets.xlsx` with all symbol
    - `C1 = Description`
    - `D1 = Bloomberg Ticker`
    - `E1 = Notes (optional, matches CSV column 5)`
-3. Paste all **72 rows** (A2:E73) from the expanded symbol map
+3. Paste all rows from the expanded symbol map (currently 69 tickers; add the remaining assets when Bloomberg releases the SOL/XRP codes)
 
-### Step 3: Bulk Download Formula (72 Assets)
+### Step 3: Bulk Download Formula (Expanded Set)
 
 In cell F1, enter this formula:
 
 ```excel
-=BDH($D$2:$D$73,"PX_LAST","19900101","20251116","Dir=V")
+=BDH($D$2:$D$70,"PX_LAST","19900101","20251116","Dir=V")
 ```
 
 **Formula breakdown:**
-- `$D$2:$D$73` = Bloomberg ticker strings for all 72 assets
+- `$D$2:$D$70` = Bloomberg ticker strings for the expanded asset list
 - `"PX_LAST"` = Last price field
 - `"19900101"` = Start date (Jan 1, 1990)
 - `"20251116"` = End date (Nov 16, 2025)
@@ -82,9 +86,20 @@ In cell F1, enter this formula:
 
 **⚠️ Important Notes:**
 - The expanded CSV includes asset class + description columns, so the tickers live in column **D** by default. Adjust the BDH range if you reorder columns in Excel.
-- Press Enter and wait **10-20 minutes** for Bloomberg to load data (72 assets × 30+ years)
+- Press Enter and wait **10-20 minutes** for Bloomberg to load data (≈70 assets × 30+ years)
 - Some assets (crypto, recent int'l indices) may not have data back to 1990 - this is expected
 - Bloomberg will show #N/A for dates before asset inception (handle in Python preprocessing)
+
+#### Reference export (Nov 16, 2025)
+
+See `data/bloomberg/future_data-20251117T014559Z-1-001.zip` for the exact files we downloaded at the library:
+
+| File | Coverage |
+|------|----------|
+| `future_data/bloomberg_extend_tickers.csv` | 24 assets: the 6 LME 3M forwards, 4 global equity indices (GX1, TP1, HI1, ZTSA), 4 crypto aggregates (BTCA, DCRA, MERA, BMR), 4 spot metals (XAU/XAG/XPT/XPD), RBOB gasoline (XB1), plus risk proxies (VIX Index, FF1 Comdty, FF4  Comdty, TU1 Comdty, LF98OAS Index). |
+| `future_data/bloomberg_historical_data_50_original.csv` | Canonical 50 futures and FX contracts. Some (e.g., `ZC1 Comdty`, `ZR1 Comdty`, `MID1 Index`) have short histories because Bloomberg only stores portions of the legacy contracts. |
+
+Each CSV is formatted as repeating four-column blocks `[Ticker label, Date, Price, blank column]`. When importing into pandas or Excel, copy each `[Date, Price]` pair into its own tab/column or adapt the sample reshaping snippet in `data/bloomberg/README.md`.
 
 ---
 

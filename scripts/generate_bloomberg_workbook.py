@@ -28,21 +28,46 @@ import argparse
 import csv
 from datetime import datetime
 from pathlib import Path
+from typing import Dict, List
 
 import openpyxl
-from openpyxl.utils import get_column_letter
 
 
-def load_symbol_map(csv_path: Path) -> list[dict]:
+IGNORED_TICKER_TOKENS = {"<TBD>", "TBD"}
+
+
+def _clean_field(value: str | None) -> str:
+    """Trim whitespace and normalize None → empty string."""
+    return (value or "").strip()
+
+
+def load_symbol_map(csv_path: Path) -> List[Dict[str, str]]:
     """Load symbol map CSV and return list of symbol records."""
-    symbols = []
+    symbols: List[Dict[str, str]] = []
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Symbol map not found: {csv_path}")
+
     with csv_path.open(newline="") as fh:
         reader = csv.DictReader(fh)
-        for row in reader:
-            # Skip comment lines or empty rows
-            if not row.get("bloomberg_ticker") or row["bloomberg_ticker"].startswith("#"):
+        for raw in reader:
+            pinnacle = _clean_field(raw.get("pinnacle_id"))
+            ticker = _clean_field(raw.get("bloomberg_ticker"))
+
+            if not pinnacle or not ticker:
                 continue
-            symbols.append(row)
+            if pinnacle.startswith("#") or ticker.startswith("#"):
+                continue
+            if any(token in ticker.upper() for token in IGNORED_TICKER_TOKENS):
+                continue
+
+            record = {
+                "pinnacle_id": pinnacle,
+                "asset_class": _clean_field(raw.get("asset_class")),
+                "description": _clean_field(raw.get("description")),
+                "bloomberg_ticker": ticker,
+                "notes": _clean_field(raw.get("notes")),
+            }
+            symbols.append(record)
     return symbols
 
 

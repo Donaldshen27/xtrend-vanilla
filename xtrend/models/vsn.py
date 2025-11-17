@@ -73,6 +73,6 @@ class VariableSelectionNetwork(nn.Module):
             processed_features.append(weighted_j)
 
         # Sum weighted features: Σ w_{t,j} * FFN_j(x_{t,j})
-        output = torch.stack(processed_features, dim=-1).sum(dim=-1)
+        output = sum(processed_features)
 
         return output, weights

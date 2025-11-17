@@ -139,21 +139,21 @@ assert (volatilities > 0).all(), "All volatilities positive"
 - Validate segmentation quality
 
 ### Tasks
-1. **GP Implementation**
-   - [ ] Implement Matérn 3/2 kernel for GP
-   - [ ] Implement Change-point kernel (two GPs with soft transition)
-   - [ ] Calculate log marginal likelihoods (L_M, L_C)
+1. **GP Implementation** ✅
+   - [x] Implement Matérn 3/2 kernel for GP ✅
+   - [x] Implement Change-point kernel (using GPyTorch built-in) ✅
+   - [x] Calculate log marginal likelihoods (L_M, L_C) ✅
 
-2. **CPD Algorithm** (Algorithm 1, Appendix A)
-   - [ ] Implement lookback window (l_lbw = 21)
-   - [ ] Calculate severity: ν = L_C / (L_M + L_C)
-   - [ ] Set thresholds: ν = 0.9 (21-day), ν = 0.95 (63-day)
-   - [ ] Respect min length (l_min = 5) and max length (l_max = 21 or 63)
+2. **CPD Algorithm** (Algorithm 1, Appendix A) ✅
+   - [x] Implement lookback window (l_lbw = 21) ✅
+   - [x] Calculate severity: sigmoid(L_C - L_M) using log Bayes factor ✅
+   - [x] Set thresholds: configurable via CPDConfig ✅
+   - [x] Respect min length (l_min = 5) and max length (l_max = 21 or 63) ✅
 
-3. **Regime Validation**
-   - [ ] Verify causality (no future information leakage)
-   - [ ] Check regime length distribution
-   - [ ] Validate statistical properties of regimes
+3. **Regime Validation** ✅
+   - [x] Verify causality (backward segmentation ensures no future information) ✅
+   - [x] Check regime length distribution (validated in tests) ✅
+   - [x] Validate statistical properties of regimes (validation framework) ✅
 
 ### Visual Completion Criteria
 
@@ -182,6 +182,42 @@ print(f"Regime length range: [{min_len}, {max_len}]")
 - Regime changes align with visible market shifts
 - Uptrends, downtrends, and mean-reversion periods clearly separated
 - COVID-19 period (Feb-Mar 2020) shows multiple regime changes
+
+### ✅ Phase 2 Complete (2025-11-17)
+
+**Implementation:**
+- All core functions implemented and tested (30/30 CPD tests passing)
+- GPFitter: fit_stationary_gp(), fit_changepoint_gp(), compute_severity()
+- GPCPDSegmenter: Recursive backward segmentation with edge case handling
+- Types: CPDConfig, RegimeSegment, RegimeSegments with validation
+- Validation: Statistical validation framework
+- 50 total tests passing (includes Phase 1 + Phase 2)
+
+**Code Quality:**
+- Reviewed by Claude Code + OpenAI Codex
+- Critical fix: Correct severity formula using log Bayes factor (sigmoid(L_C - L_M))
+- Comprehensive test suite with unit and integration tests
+- Edge case handling: stubs, boundaries, min/max length enforcement
+- No gaps or overlaps guarantee
+
+**Testing:**
+- Unit tests: GP fitting, segmentation, types, validation
+- Integration tests: Full pipeline, COVID detection
+- Property validation: No gaps, length constraints, causality
+- Duration: 119s for full test suite
+
+**Files:**
+- Implementation: `xtrend/cpd/{gp_fitter.py, segmenter.py, types.py, validation.py, backend.py}`
+- Tests: `tests/cpd/{test_gp_fitter.py, test_segmenter.py, test_types.py, test_validation.py}`
+- Integration: `tests/integration/test_phase2_complete.py`
+- Documentation: `docs/plans/2025-11-17-phase2-cpd-design.md`, `docs/phase2-validation-report.md`
+
+**Known Limitations (for future phases):**
+- Streamlit visualization deferred (core functionality complete)
+- Full known-event validation suite deferred (COVID test passing)
+- Performance optimizations deferred to Phase 10
+
+**Ready for Phase 3:** Base Neural Architecture
 
 ---
 

@@ -3,10 +3,10 @@
 Convert Bloomberg CSV/Excel exports to the Pinnacle-aligned Parquet layout.
 
 Usage:
-    python scripts/convert_bloomberg_to_parquet.py
+    python scripts/convert_bloomberg_to_parquet.py [--symbol-map PATH ...]
 
 Workflow:
-1. Reads symbol metadata from data/bloomberg/symbol_map.csv
+1. Reads symbol metadata from the canonical & expanded symbol map CSVs
 2. Scans data/bloomberg/raw for Excel/CSV exports
 3. Converts each column to Parquet using Pinnacle IDs for filenames
 
@@ -14,13 +14,21 @@ Input format: Bloomberg BDH exports (Excel worksheet or CSV per symbol)
 Output format: data/bloomberg/<PinnacleID>.parquet with standardized schema
 """
 
+import argparse
 import csv
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
+
+
+IGNORED_TICKER_TOKENS = {"<TBD>", "TBD"}
+
+
+def _clean_field(value: Optional[str]) -> str:
+    return value.strip() if isinstance(value, str) else ""
 
 
 def normalize_security_name(value: str) -> str:
@@ -41,22 +49,30 @@ SymbolEntry = Tuple[str, str]  # (pinnacle_id, bloomberg_ticker)
 class SymbolMapper:
     """Lightweight helper that maps Bloomberg tickers to Pinnacle IDs."""
 
-    def __init__(self, csv_path: Path) -> None:
-        self.csv_path = csv_path
+    def __init__(self, csv_paths: Iterable[Path]) -> None:
+        self.csv_paths = list(csv_paths)
         self.by_norm: Dict[str, List[SymbolEntry]] = {}
-        self._load()
+        self._load_all()
 
-    def _load(self) -> None:
-        if not self.csv_path.exists():
-            print(f"WARNING: Symbol map not found at {self.csv_path} – filenames will use Bloomberg tickers.")
+    def _load_all(self) -> None:
+        for csv_path in self.csv_paths:
+            self._load(csv_path)
+
+    def _load(self, csv_path: Path) -> None:
+        if not csv_path.exists():
+            print(f"WARNING: Symbol map not found at {csv_path} – filenames will use Bloomberg tickers.")
             return
 
-        with self.csv_path.open(newline="") as fh:
+        with csv_path.open(newline="") as fh:
             reader = csv.DictReader(fh)
             for row in reader:
-                ticker = row.get("bloomberg_ticker", "").strip()
-                pinnacle = row.get("pinnacle_id", "").strip()
+                ticker = _clean_field(row.get("bloomberg_ticker"))
+                pinnacle = _clean_field(row.get("pinnacle_id"))
                 if not ticker or not pinnacle:
+                    continue
+                if pinnacle.startswith("#") or ticker.startswith("#"):
+                    continue
+                if any(token in ticker.upper() for token in IGNORED_TICKER_TOKENS):
                     continue
                 info: SymbolEntry = (pinnacle, ticker)
                 for key in self._variant_keys(ticker, pinnacle):
@@ -196,13 +212,43 @@ def convert_excel_to_parquet(excel_path: Path, output_dir: Path, mapper: SymbolM
         sys.exit(1)
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Convert Bloomberg Excel/CSV exports into Parquet files."
+    )
+    parser.add_argument(
+        "--symbol-map",
+        action="append",
+        type=Path,
+        help=(
+            "Path to a symbol map CSV (repeatable). "
+            "Defaults to data/bloomberg/symbol_map.csv plus the expanded map if present."
+        ),
+    )
+    return parser.parse_args()
+
+
+def build_symbol_map_paths(project_root: Path, cli_paths: Optional[List[Path]]) -> List[Path]:
+    if cli_paths:
+        return [p if p.is_absolute() else (Path.cwd() / p) for p in cli_paths]
+
+    bloomberg_dir = project_root / "data" / "bloomberg"
+    paths = [bloomberg_dir / "symbol_map.csv"]
+    expanded = bloomberg_dir / "symbol_map_expanded.csv"
+    if expanded.exists():
+        paths.append(expanded)
+    return paths
+
+
 def main():
+    args = parse_args()
+
     # Paths
     project_root = Path(__file__).parent.parent
     raw_dir = project_root / "data" / "bloomberg" / "raw"
     output_dir = project_root / "data" / "bloomberg"
-    symbol_map_path = project_root / "data" / "bloomberg" / "symbol_map.csv"
-    mapper = SymbolMapper(symbol_map_path)
+    symbol_map_paths = build_symbol_map_paths(project_root, args.symbol_map)
+    mapper = SymbolMapper(symbol_map_paths)
 
     # Create output directory if needed
     output_dir.mkdir(parents=True, exist_ok=True)

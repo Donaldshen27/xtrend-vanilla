@@ -41,8 +41,12 @@ class LSTMEncoder(nn.Module):
             assert entity_embedding is not None, "entity_embedding required when use_entity=True"
             self.entity_embedding = entity_embedding
 
-        # Variable Selection Network
-        self.vsn = VariableSelectionNetwork(config)
+        # Variable Selection Network (with entity conditioning)
+        self.vsn = VariableSelectionNetwork(
+            config,
+            use_entity=use_entity,
+            entity_embedding=entity_embedding if use_entity else None
+        )
 
         # LSTM cell (single layer, so dropout parameter is ignored)
         self.lstm = nn.LSTM(
@@ -95,8 +99,8 @@ class LSTMEncoder(nn.Module):
         batch_size, seq_len, _ = x.shape
 
         # Step 1: Variable Selection Network
-        # x'_t = VSN(x_t, s)
-        x_prime, _ = self.vsn(x)  # (batch, seq_len, hidden_dim)
+        # x'_t = VSN(x_t, s) - condition on entity embeddings
+        x_prime, _ = self.vsn(x, entity_ids)  # (batch, seq_len, hidden_dim)
 
         # Step 2: Initialize LSTM state
         if self.use_entity and entity_ids is not None:

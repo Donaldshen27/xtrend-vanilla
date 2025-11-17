@@ -28,7 +28,9 @@
 
 ### Tasks
 1. **Data Loading**
-   - [ ] Load 50 continuous futures contracts (1990-2023)
+   - [x] Load 72 continuous futures contracts (1990-2025) ✅
+   - [x] Convert Bloomberg Terminal exports to Parquet format ✅
+   - [x] Implement data quality checks and validation ✅
    - [ ] Implement backwards ratio-adjusted chaining
    - [ ] Handle missing data and date alignment
 
@@ -46,6 +48,15 @@
    - [ ] Calculate 60-day exponentially weighted volatility σ_t
    - [ ] Implement leverage factor: σ_tgt / σ_t
    - [ ] Set target volatility σ_tgt (e.g., 15%)
+
+5. **Data Visualization** ✅
+   - [x] Build Streamlit web app for interactive visualization
+   - [x] Multi-symbol selection and comparison
+   - [x] Date range filtering with slider controls
+   - [x] Price normalization for relative performance analysis
+   - [x] Interactive Plotly charts with hover tooltips
+   - [x] Summary statistics table (mean, std, min, max, dates)
+   - [x] Modular architecture for future analysis features
 
 ### Visual Completion Criteria
 
@@ -68,11 +79,17 @@ assert not features.isna().any().any(), "No NaN values"
 assert (volatilities > 0).all(), "All volatilities positive"
 ```
 
+**Visualization Tools:**
+1. ✅ **Bloomberg Streamlit Explorer** - Interactive web app
+   - Launch: `uv run streamlit run scripts/bloomberg_explorer.py`
+   - Features: Multi-symbol selection, date filtering, normalization, interactive charts
+   - Location: `scripts/bloomberg_explorer.py` and `scripts/bloomberg_viz/`
+
 **Plots to generate:**
-1. Price series for 5 representative assets (one from each asset class)
-2. Returns distribution histogram showing normalized returns
-3. MACD indicators overlaid on price for sample period
-4. Volatility time series showing targeting effect
+1. ✅ Price series visualization (via Streamlit explorer)
+2. [ ] Returns distribution histogram showing normalized returns
+3. [ ] MACD indicators overlaid on price for sample period
+4. [ ] Volatility time series showing targeting effect
 
 ---
 
@@ -801,6 +818,24 @@ Phase 10 (Optimization)
 
 ---
 
-**Last Updated:** 2024-11-14
+## Recent Progress
+
+### Completed (2025-11-16)
+- ✅ **Bloomberg Data Visualization** - Built interactive Streamlit web app
+  - Multi-symbol price visualization with normalization
+  - Date range filtering and interactive charts
+  - Summary statistics and data quality checks
+  - Modular architecture ready for analysis features (returns, volatility, correlations)
+  - Location: `scripts/bloomberg_explorer.py`, `scripts/bloomberg_viz/`
+  - Documentation: `scripts/README.md`, `docs/plans/2025-11-16-bloomberg-streamlit-explorer-design.md`
+
+### In Progress
+- [ ] Returns calculation at multiple timescales
+- [ ] MACD feature engineering
+- [ ] Volatility targeting implementation
+
+---
+
+**Last Updated:** 2025-11-16
 **Paper:** [Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies](https://arxiv.org/abs/2310.10500)
 **Code:** https://github.com/kieranjwood/x-trend

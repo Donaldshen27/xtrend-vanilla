@@ -82,7 +82,8 @@ def normalized_returns(prices: "Any", scale: int, vol_window: int = 252) -> "Any
 
     # Rolling standard deviation (realized volatility)
     # Use proportional min_periods to avoid issues with small windows
-    min_periods = min(20, vol_window // 2)
+    # Ensure at least 20 observations, scaling up for larger windows
+    min_periods = max(20, vol_window // 2)
     sigma_t = daily_returns.rolling(window=vol_window, min_periods=min_periods).std()
 
     # Clip sigma_t to prevent division by zero when volatility collapses

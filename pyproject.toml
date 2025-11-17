@@ -22,6 +22,10 @@ dependencies = [
 
     # Technical analysis
     "ta>=0.11.0",
+
+    # GP Change-Point Detection
+    "torch>=2.0.0",
+    "gpytorch>=1.11",
 ]
 
 [build-system]

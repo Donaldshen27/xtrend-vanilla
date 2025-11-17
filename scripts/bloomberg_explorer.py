@@ -17,6 +17,7 @@ from bloomberg_viz.data_loader import (
 )
 from bloomberg_viz.charts import create_price_chart, display_summary_stats
 from bloomberg_viz.returns_tab import render_returns_tab
+from bloomberg_viz.regimes_tab import render_regimes_tab
 
 
 def main():
@@ -44,7 +45,13 @@ def main():
     st.success(f"✅ Found {len(available_symbols)} symbols")
 
     # Create tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["Prices", "Returns", "Quality", "Correlations"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📈 Prices",
+        "📊 Returns",
+        "🎯 Regimes",
+        "🔍 Quality",
+        "📉 Correlations"
+    ])
 
     with tab1:
         render_price_explorer(available_symbols)
@@ -71,6 +78,16 @@ def main():
             st.exception(e)
 
     with tab3:
+        # Phase 2: Regimes tab
+        try:
+            from xtrend.data.sources import BloombergParquetSource
+            source = BloombergParquetSource(root_path="data/bloomberg/processed")
+            render_regimes_tab(source)
+        except Exception as e:
+            st.error(f"❌ Error loading regimes tab: {e}")
+            st.exception(e)
+
+    with tab4:
         st.info("🔜 Coming soon: Data Quality Checks")
         st.markdown("""
         **Planned features:**
@@ -79,7 +96,7 @@ def main():
         - Quality report per symbol
         """)
 
-    with tab4:
+    with tab5:
         st.info("🔜 Coming soon: Correlation Analysis")
         st.markdown("""
         **Planned features:**

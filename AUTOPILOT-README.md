@@ -13,6 +13,10 @@
 
 This integration gives you the **best of both worlds**: ready-to-use skills that **automatically activate** when needed, powered by production-tested infrastructure from enterprise-scale projects.
 
+## Python Environment
+
+> **Environment note:** The surrounding X-Trend project now standardizes on [uv](https://github.com/astral-sh/uv). Run `uv sync` in the repo root to create/update `.venv`, then execute helper scripts or entry points via `uv run …` (for example, `uv run python scripts/generate_bloomberg_workbook.py`).
+
 ## 🎯 Key Features
 
 ### Auto-Activation (The Game Changer)

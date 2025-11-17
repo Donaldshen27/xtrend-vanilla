@@ -2,6 +2,8 @@
 
 Complete workflow for exporting Bloomberg continuous futures data and using it in X-Trend.
 
+> **Environment note:** The project standardizes on [uv](https://github.com/astral-sh/uv). Run `uv sync` at the repo root to create/update `.venv`, then execute helper scripts via `uv run python …`.
+
 ## Overview
 
 This directory contains Bloomberg continuous futures data exported from Bloomberg Terminal and converted to Parquet format.
@@ -17,26 +19,30 @@ Bloomberg Terminal (Excel) → CSV/Excel → Parquet → BloombergParquetSource
 
 #### Install Python dependencies (first time only)
 
-The helper scripts require `openpyxl`, `pandas`, and `pyarrow`. Create a virtual environment (recommended) and install the bundled requirements:
+The helper scripts require `openpyxl`, `pandas`, and `pyarrow`. Install them with uv from the project root:
 
 ```bash
-python3 -m venv .venv-bloomberg
-source .venv-bloomberg/bin/activate
-pip install -r requirements/bloomberg.txt
+uv sync --frozen
 ```
 
-Run the commands from the project root so the `requirements/` folder is in the working directory.
+Optionally activate the virtual environment for an interactive shell:
 
-> Skip the `source` step on Windows; run `.venv-bloomberg\Scripts\activate` instead.
+```bash
+source .venv/bin/activate
+```
+
+Run the commands from the project root so the helper scripts resolve paths correctly.
+
+> On Windows, run `.venv\Scripts\activate` if you need an activated shell. `uv run …` works without manual activation.
 
 Generate the Excel workbook with pre-configured BDH formula:
 
 ```bash
 # For 50-asset set
-python scripts/generate_bloomberg_workbook.py
+uv run python scripts/generate_bloomberg_workbook.py
 
 # For 72-asset set (recommended; currently 69 fully-specified tickers)
-python scripts/generate_bloomberg_workbook.py --expanded
+uv run python scripts/generate_bloomberg_workbook.py --expanded
 ```
 
 Copy the generated file from `data/bloomberg/raw/` to USB drive.

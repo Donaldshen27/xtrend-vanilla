@@ -2,6 +2,8 @@
 
 > **Purpose**: Step-by-step implementation plan for replicating the X-Trend paper with clear visual completion criteria for each phase.
 
+> **Environment note:** All Python commands in this plan assume the repo has been prepared with `uv sync`. Prefix run commands with `uv run …` (e.g., `uv run python scripts/convert_bloomberg_to_parquet.py`) to keep execution inside the uv-managed virtual environment.
+
 ## Table of Contents
 - [Phase 1: Data Pipeline & Feature Engineering](#phase-1-data-pipeline--feature-engineering)
 - [Phase 2: Change-Point Detection](#phase-2-change-point-detection)

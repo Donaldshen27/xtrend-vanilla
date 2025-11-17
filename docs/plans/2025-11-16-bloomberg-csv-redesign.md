@@ -4,6 +4,8 @@
 **Status:** Approved
 **Context:** Redesigning `data/bloomberg/future_data/bloomberg_historical_data_50_original.csv` for easier parquet conversion
 
+> **Environment note:** Run `uv sync` once in the repo root, then execute every script below via `uv run python …` (for example, `uv run python scripts/reshape_bloomberg_csv.py`).
+
 ## Problem Statement
 
 The current Bloomberg export CSV has a problematic "wide format":
@@ -133,10 +135,10 @@ Our output format matches this exactly, so no changes needed to conversion scrip
 **Workflow after redesign:**
 ```bash
 # Step 1: Reshape wide CSV to individual files
-python scripts/reshape_bloomberg_csv.py
+uv run python scripts/reshape_bloomberg_csv.py
 
 # Step 2: Convert individual CSVs to parquet (existing script)
-python scripts/convert_bloomberg_to_parquet.py
+uv run python scripts/convert_bloomberg_to_parquet.py
 ```
 
 ### Benefits

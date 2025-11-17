@@ -4,6 +4,7 @@
 
 Expanding from **50 → 72+ assets** to enhance X-Trend's few-shot and zero-shot learning capabilities through increased context set diversity.
 
+> **Environment note:** Prepare the repo with `uv sync` and execute helper utilities via `uv run python …` (e.g., `uv run python scripts/convert_bloomberg_to_parquet.py`) whenever these notes reference scripts.
 **Key Insight from Paper:**
 > X-Trend's zero-shot design (30 train assets → 20 test assets) explicitly benefited from context diversity; expanding across regions, contract specifications (cash-settled vs deliverable), and quote currencies adds distinct trend regimes the cross-attention can learn from, improving generalization to new targets.
 
@@ -373,7 +374,7 @@ Based on X-Trend paper results:
 
 ### Post-Export:
 
-- [ ] Run `scripts/convert_bloomberg_to_parquet.py` with expanded symbol map
+- [ ] Run `uv run python scripts/convert_bloomberg_to_parquet.py` with the expanded symbol map
 - [ ] Handle missing data (crypto starts ~2017, confirm LME/int'l index starts)
 - [ ] Create separate datasets:
   - `data/processed/all_72_assets.parquet` (few-shot)

@@ -2,23 +2,25 @@
 
 **UPDATED:** Now includes 72 assets (50 original + 22 new for enhanced X-Trend context diversity)
 
+> **Environment note:** Run `uv sync` from the repo root before using any helper scripts in this guide. Preface commands with `uv run python …` so they execute inside the uv-managed environment.
+
 ## Quick Start
 
 **🚀 AUTOMATED WORKBOOK GENERATION (RECOMMENDED):**
 ```bash
 # Generate 50-asset workbook
-python scripts/generate_bloomberg_workbook.py
+uv run python scripts/generate_bloomberg_workbook.py
 
 # Generate 72-asset workbook (expanded set)
-python scripts/generate_bloomberg_workbook.py --expanded
+uv run python scripts/generate_bloomberg_workbook.py --expanded
 
 # Custom date range
-python scripts/generate_bloomberg_workbook.py --expanded --start 1995-01-01 --end 2024-12-31
+uv run python scripts/generate_bloomberg_workbook.py --expanded --start 1995-01-01 --end 2024-12-31
 ```
 
 This creates an Excel file with the BDH formula pre-configured. Just copy to USB, open at Bloomberg Terminal, and press Enter in cell F1.
 
-> Dependencies: `openpyxl`, `pandas`, and `pyarrow`. Install once with `python3 -m venv .venv-bloomberg && source .venv-bloomberg/bin/activate && pip install -r requirements/bloomberg.txt`.
+> Dependencies: `openpyxl`, `pandas`, and `pyarrow`. Install them via `uv sync` (project root) and run scripts with `uv run …` to stay inside the shared `.venv`.
 
 > The expanded workbook currently includes **69 fully-configured tickers** (50 original + 19 new). Add SOL/XRP once Bloomberg codes are confirmed to reach the planned 72.
 
@@ -45,7 +47,7 @@ See [`XTREND_ASSET_EXPANSION_NOTES.md`](./XTREND_ASSET_EXPANSION_NOTES.md) for d
 Run the workbook generator script before going to the terminal:
 
 ```bash
-python scripts/generate_bloomberg_workbook.py --expanded
+uv run python scripts/generate_bloomberg_workbook.py --expanded
 ```
 
 This creates `data/bloomberg/raw/bloomberg_export_72assets.xlsx` with all symbols and the BDH formula pre-configured (currently 69 populated tickers; add SOL/XRP later when Bloomberg codes are published).
@@ -110,7 +112,7 @@ Each CSV is formatted as repeating four-column blocks `[Ticker label, Date, Pric
 Run the workbook generator script before going to the terminal:
 
 ```bash
-python scripts/generate_bloomberg_workbook.py
+uv run python scripts/generate_bloomberg_workbook.py
 ```
 
 This creates `data/bloomberg/raw/bloomberg_export.xlsx` with all symbols and the BDH formula pre-configured.

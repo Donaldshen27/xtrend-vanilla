@@ -4,6 +4,8 @@ A methodology for maintaining project context across Claude Code sessions and co
 
 ---
 
+> **Environment note:** Before executing any scripts referenced here, run `uv sync` in the repo root and use `uv run …` (for example, `uv run python main.py`) so that every task leverages the shared uv-managed virtual environment.
+
 ## The Problem
 
 **Context resets lose everything:**

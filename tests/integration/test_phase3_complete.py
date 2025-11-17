@@ -95,6 +95,9 @@ class TestPhase3Integration:
         # Check model parameters have gradients
         for name, param in model.named_parameters():
             if param.requires_grad:
+                # Skip generic LSTM states when entity_ids are provided (not used in forward)
+                if 'generic' in name:
+                    continue
                 assert param.grad is not None, f"{name} has no gradient"
                 assert torch.isfinite(param.grad).all(), f"{name} has non-finite gradients"
 
@@ -121,6 +124,9 @@ class TestPhase3Integration:
         # Structural check 2: All model parameters receive gradients
         for name, param in encoder.named_parameters():
             if param.requires_grad:
+                # Skip generic LSTM states when entity_ids are provided (not used in forward)
+                if 'generic' in name:
+                    continue
                 assert param.grad is not None, f"{name} has no gradient"
                 assert torch.isfinite(param.grad).all(), f"{name} has non-finite gradients"
 

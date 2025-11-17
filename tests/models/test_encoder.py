@@ -84,3 +84,14 @@ class TestLSTMEncoder:
         output = encoder(x, entity_ids=None)
 
         assert output.hidden_states.shape == (4, 20, model_config.hidden_dim)
+
+    def test_encoder_without_entity_ids(self, model_config, sample_features):
+        """Encoder works when entity_ids=None even with use_entity=True."""
+        entity_embedding = EntityEmbedding(model_config)
+        encoder = LSTMEncoder(model_config, use_entity=True, entity_embedding=entity_embedding)
+
+        # Should not crash even when batch_size != num_entities
+        output = encoder(sample_features, entity_ids=None)
+
+        batch_size, seq_len, _ = sample_features.shape
+        assert output.hidden_states.shape == (batch_size, seq_len, model_config.hidden_dim)

@@ -71,6 +71,9 @@ class LSTMEncoder(nn.Module):
         if use_entity:
             self.init_h = nn.Parameter(torch.randn(config.num_entities, config.hidden_dim))
             self.init_c = nn.Parameter(torch.randn(config.num_entities, config.hidden_dim))
+            # Generic state for when entity_ids=None
+            self.init_h_generic = nn.Parameter(torch.randn(1, config.hidden_dim))
+            self.init_c_generic = nn.Parameter(torch.randn(1, config.hidden_dim))
         else:
             self.init_h = nn.Parameter(torch.randn(1, config.hidden_dim))
             self.init_c = nn.Parameter(torch.randn(1, config.hidden_dim))
@@ -100,8 +103,12 @@ class LSTMEncoder(nn.Module):
             # Entity-specific initialization
             h_0 = self.init_h[entity_ids]  # (batch, hidden_dim)
             c_0 = self.init_c[entity_ids]  # (batch, hidden_dim)
+        elif self.use_entity and entity_ids is None:
+            # Generic initialization when use_entity=True but entity_ids=None
+            h_0 = self.init_h_generic.expand(batch_size, -1)  # (batch, hidden_dim)
+            c_0 = self.init_c_generic.expand(batch_size, -1)  # (batch, hidden_dim)
         else:
-            # Generic initialization for zero-shot
+            # Zero-shot mode (use_entity=False)
             h_0 = self.init_h.expand(batch_size, -1)  # (batch, hidden_dim)
             c_0 = self.init_c.expand(batch_size, -1)  # (batch, hidden_dim)
 

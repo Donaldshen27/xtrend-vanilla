@@ -66,3 +66,14 @@ class TestBaselineDMN:
         # Input should have gradients
         assert x.grad is not None
         assert not torch.isnan(x.grad).any()
+
+    def test_baseline_without_entity_ids(self, model_config, sample_features):
+        """BaselineDMN works when entity_ids=None."""
+        model = BaselineDMN(model_config)
+
+        # Should not crash
+        positions = model(sample_features, entity_ids=None)
+
+        batch_size, seq_len, _ = sample_features.shape
+        assert positions.shape == (batch_size, seq_len)
+        assert (positions.abs() < 1).all()

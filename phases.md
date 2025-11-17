@@ -87,9 +87,9 @@ assert (volatilities > 0).all(), "All volatilities positive"
 
 **Plots to generate:**
 1. ✅ Price series visualization (via Streamlit explorer)
-2. [ ] Returns distribution histogram showing normalized returns
-3. [ ] MACD indicators overlaid on price for sample period
-4. [ ] Volatility time series showing targeting effect
+2. ✅ Returns distribution histogram showing normalized returns
+3. ✅ MACD indicators overlaid on price for sample period
+4. ✅ Volatility time series showing targeting effect
 
 ### ✅ Phase 1 Complete (2025-11-17)
 
@@ -110,9 +110,16 @@ assert (volatilities > 0).all(), "All volatilities positive"
   - Resolved pandas FutureWarning
 - Comprehensive test suite with integration tests
 
+**Visualization:**
+- Interactive Streamlit app with Phase 1 analysis (Tab 2: Returns)
+- Three sections: Returns Distribution, MACD Indicators, Volatility Targeting
+- All plots interactive with configurable parameters
+- Launch: `uv run streamlit run scripts/bloomberg_explorer.py`
+
 **Files:**
 - Implementation: `xtrend/data/{sources.py, returns_vol.py}`, `xtrend/features/indicators_backend.py`
 - Tests: `tests/data/`, `tests/features/`, `tests/integration/`
+- Visualization: `scripts/bloomberg_viz/{analysis.py, charts.py, returns_tab.py}`, `scripts/bloomberg_explorer.py`
 - Documentation: `docs/plans/2025-11-17-phase1-data-pipeline-features.md`
 
 **Known Limitations (for future phases):**

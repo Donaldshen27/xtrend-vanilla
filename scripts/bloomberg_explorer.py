@@ -16,6 +16,7 @@ from bloomberg_viz.data_loader import (
     DATA_DIR
 )
 from bloomberg_viz.charts import create_price_chart, display_summary_stats
+from bloomberg_viz.returns_tab import render_returns_tab
 
 
 def main():
@@ -49,13 +50,25 @@ def main():
         render_price_explorer(available_symbols)
 
     with tab2:
-        st.info("🔜 Coming soon: Returns Analysis")
-        st.markdown("""
-        **Planned features:**
-        - Daily/weekly/monthly returns calculation
-        - Rolling volatility charts
-        - Cumulative performance comparison
-        """)
+        # Load default data for Returns tab (same symbols as Price tab would be ideal)
+        default_symbols_returns = ['ES', 'XAU', 'BR', 'ZC', 'ZN', 'DX']
+        available_for_returns = [s for s in default_symbols_returns if s in available_symbols]
+        if not available_for_returns:
+            available_for_returns = available_symbols[:6]  # fallback to first 6
+
+        try:
+            # Load data for returns analysis
+            data_returns = {}
+            for symbol in available_for_returns:
+                from xtrend.data.sources import BloombergParquetSource
+                source = BloombergParquetSource(root_path="data/bloomberg/processed")
+                prices_df = source.load_prices([symbol], start='1995-01-01', end='2023-12-31')
+                data_returns[symbol] = prices_df.rename(columns={symbol: 'price'})
+
+            render_returns_tab(available_symbols, data_returns)
+        except Exception as e:
+            st.error(f"❌ Error loading returns data: {e}")
+            st.exception(e)
 
     with tab3:
         st.info("🔜 Coming soon: Data Quality Checks")

@@ -104,30 +104,37 @@ class BloombergParquetSource:
         - Parquet schema: date (index), price (float)
         - Returns wide DataFrame with dates as index, symbols as columns
     """
-    def __init__(self, root_path: str = "data/bloomberg"):
+    def __init__(self, root_path: str = "data/bloomberg/processed"):
         """
         Initialize with root path to Bloomberg Parquet files.
 
         Args:
             root_path: Directory containing [SYMBOL].parquet files
         """
-        pass
+        from pathlib import Path
+        self.root_path = Path(root_path)
+        if not self.root_path.exists():
+            raise ValueError(f"Root path does not exist: {root_path}")
 
     def symbols(self) -> "List[str]":
         """
         Return available Bloomberg symbols from Parquet files.
 
         Returns:
-            List of symbol names (e.g., ['CL1', 'BN1', 'ES1'])
+            List of symbol names (e.g., ['CL', 'ES', 'GC'])
         """
-        pass
+        import glob
+        from pathlib import Path
+        parquet_files = glob.glob(str(self.root_path / "*.parquet"))
+        symbols = [Path(f).stem for f in parquet_files]
+        return sorted(symbols)
 
     def load_prices(self, symbols: "Sequence[str]", start: Optional[Any] = None, end: Optional[Any] = None) -> "Any":
         """
         Load price panel for given symbols and date range.
 
         Args:
-            symbols: List of symbols to load (e.g., ['CL1', 'BN1'])
+            symbols: List of symbols to load (e.g., ['CL', 'ES'])
             start: Start date (optional, format: 'YYYY-MM-DD' or datetime)
             end: End date (optional, format: 'YYYY-MM-DD' or datetime)
 
@@ -141,4 +148,31 @@ class BloombergParquetSource:
             FileNotFoundError: If symbol Parquet file not found
             ValueError: If invalid date range
         """
-        pass
+        import pandas as pd
+        from pathlib import Path
+
+        # Load each symbol and combine into wide format
+        price_dfs = {}
+        for symbol in symbols:
+            parquet_path = self.root_path / f"{symbol}.parquet"
+            if not parquet_path.exists():
+                raise FileNotFoundError(f"Symbol not found: {symbol} at {parquet_path}")
+
+            df = pd.read_parquet(parquet_path)
+            # Extract price column, rename to symbol
+            price_dfs[symbol] = df['price']
+
+        # Combine into wide DataFrame
+        prices = pd.DataFrame(price_dfs)
+        prices.index.name = 'date'
+
+        # Apply date filter if specified
+        if start is not None:
+            prices = prices[prices.index >= pd.Timestamp(start)]
+        if end is not None:
+            prices = prices[prices.index <= pd.Timestamp(end)]
+
+        if len(prices) == 0:
+            raise ValueError(f"No data in date range: {start} to {end}")
+
+        return prices

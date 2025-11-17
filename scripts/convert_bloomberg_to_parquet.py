@@ -142,11 +142,12 @@ def convert_csv_to_parquet(csv_path: Path, output_dir: Path, mapper: SymbolMappe
         # Read CSV - Bloomberg typically has date in first column, price in second
         df = pd.read_csv(csv_path, parse_dates=[0])
 
-        # Standardize column names
+        # Standardize column names - take only first two columns
         if len(df.columns) >= 2:
+            df = df.iloc[:, :2]  # Keep only first two columns
             df.columns = ['date', 'price']
         else:
-            print(f"  WARNING: {symbol} - unexpected columns: {list(df.columns)}")
+            print(f"  WARNING: {pretty_name} - unexpected columns: {list(df.columns)}")
             return
 
         # Set date as index

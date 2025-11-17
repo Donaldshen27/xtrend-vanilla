@@ -5,9 +5,30 @@ import pandas as pd
 from pathlib import Path
 from typing import List, Dict, Tuple
 from datetime import datetime
+import subprocess
 
 
-DATA_DIR = Path("data/bloomberg")
+# Find git repository root to locate data directory
+def _get_git_root() -> Path:
+    """Get the git repository root directory (works in worktrees)."""
+    try:
+        # Use --git-common-dir to get main repo, works in worktrees
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        git_dir = Path(result.stdout.strip())
+        # git-common-dir returns path to .git directory, get parent for repo root
+        return git_dir.parent
+    except subprocess.CalledProcessError:
+        # Fallback to current directory if not in git repo
+        return Path.cwd()
+
+
+GIT_ROOT = _get_git_root()
+DATA_DIR = GIT_ROOT / "data" / "bloomberg" / "processed"
 
 
 @st.cache_data

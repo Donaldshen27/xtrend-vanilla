@@ -1,12 +1,35 @@
 """
-Feature construction using pandas.ewm + indicator adapters.
+Feature builder for X-Trend model.
 
-IMPORTANT: This is a *skeleton* that avoids reinventing the wheel.
-It exposes interfaces that are thin wrappers/adapters around mature libraries.
-All functions/classes contain only docstrings and 'pass' bodies.
+Combines:
+- Multi-scale returns (1, 21, 63, 126, 252 days)
+- MACD indicators (8-24, 16-28, 32-96)
+- Volatility targeting
+
+Notes:
+    This is a high-level interface. Actual implementation will be done
+    when we have a clearer picture of the model input requirements.
+
+    For Phase 1, the core building blocks are:
+    - xtrend.data.sources.BloombergParquetSource
+    - xtrend.data.returns_vol.{simple_returns, multi_scale_returns, ewm_volatility}
+    - xtrend.features.indicators_backend.{macd_multi_scale, macd_normalized}
 """
 from __future__ import annotations
 from typing import Any, Dict, Iterable, Iterator, List, Literal, Mapping, MutableMapping, Optional, Sequence, Tuple, Union, Protocol, NamedTuple
+
+class FeatureBuilder:
+    """
+    Builder for X-Trend input features.
+
+    Usage:
+        builder = FeatureBuilder(data_source)
+        features = builder.build(symbols, start_date, end_date)
+
+    TODO: Implement when model architecture is defined.
+    """
+    pass
+
 def make_features(prices: "Any",
                   returns: "Any",
                   sigma: "Any",

@@ -79,3 +79,66 @@ def test_normalized_returns():
     raw_returns = (prices - prices.shift(21)) / prices.shift(21)
     # After enough warmup period, normalized returns should exist
     assert not norm_returns.iloc[252:].isna().all().all()
+
+def test_ewm_volatility(sample_returns):
+    """Test exponentially weighted volatility calculation."""
+    vol = ewm_volatility(sample_returns, span=60)
+
+    # Check structure
+    assert isinstance(vol, pd.DataFrame)
+    assert vol.shape == sample_returns.shape
+    assert list(vol.columns) == list(sample_returns.columns)
+
+    # All non-NaN values should be positive
+    assert (vol.dropna() > 0).all().all()
+
+    # Should use pandas ewm
+    expected = sample_returns.ewm(span=60, min_periods=20).std()
+    pd.testing.assert_frame_equal(vol, expected)
+
+def test_ewm_volatility_span_parameter():
+    """Test that different spans produce different volatilities."""
+    dates = pd.date_range('2020-01-01', periods=200, freq='D')
+    np.random.seed(42)
+    returns = pd.DataFrame({
+        'ES': np.random.randn(200) * 0.01,
+    }, index=dates)
+
+    vol_short = ewm_volatility(returns, span=20)
+    vol_long = ewm_volatility(returns, span=60)
+
+    # Shorter span should be more reactive (higher variance)
+    assert vol_short.std().values[0] > vol_long.std().values[0]
+
+def test_apply_vol_target():
+    """Test volatility targeting: z* = z * (sigma_target / sigma_t)"""
+    dates = pd.date_range('2020-01-01', periods=100, freq='D')
+
+    # Raw positions
+    positions = pd.DataFrame({
+        'ES': np.linspace(-1, 1, 100),
+        'CL': np.linspace(1, -1, 100),
+    }, index=dates)
+
+    # Ex-ante volatility (varying)
+    sigma_t = pd.DataFrame({
+        'ES': np.linspace(0.5, 2.0, 100),  # 0.5 to 2.0
+        'CL': np.linspace(1.0, 1.5, 100),  # 1.0 to 1.5
+    }, index=dates)
+
+    sigma_target = 1.0
+
+    targeted_positions = apply_vol_target(positions, sigma_t, sigma_target)
+
+    # Check structure
+    assert isinstance(targeted_positions, pd.DataFrame)
+    assert targeted_positions.shape == positions.shape
+
+    # Verify formula: z* = z * (sigma_target / sigma_t)
+    expected = positions * (sigma_target / sigma_t)
+    pd.testing.assert_frame_equal(targeted_positions, expected)
+
+    # When sigma_t is high, positions should be scaled down (lower absolute value)
+    # When sigma_t is low, positions should be scaled up (higher absolute value)
+    assert abs(targeted_positions['ES'].iloc[0]) > abs(positions['ES'].iloc[0])  # Low vol -> scale up
+    assert abs(targeted_positions['ES'].iloc[-1]) < abs(positions['ES'].iloc[-1])  # High vol -> scale down

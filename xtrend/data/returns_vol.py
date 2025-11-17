@@ -91,7 +91,11 @@ def ewm_volatility(returns: "Any", span: int = 60) -> "Any":
     Returns:
         Wide DataFrame of ex-ante volatility estimates.
     """
-    pass
+    import pandas as pd
+
+    # Exponentially weighted standard deviation
+    # min_periods ensures we have enough data before computing
+    return returns.ewm(span=span, min_periods=20).std()
 
 def apply_vol_target(positions: "Any", sigma_t: "Any", sigma_target: float) -> "Any":
     """
@@ -105,4 +109,10 @@ def apply_vol_target(positions: "Any", sigma_t: "Any", sigma_target: float) -> "
     Returns:
         Volatility-targeted positions (wide DataFrame).
     """
-    pass
+    import pandas as pd
+
+    # Equation 2 from paper: leverage factor = σ_tgt / σ_t
+    leverage = sigma_target / sigma_t
+
+    # Apply leverage to positions
+    return positions * leverage

@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
 """
-Convert Bloomberg CSV/Excel exports to the Pinnacle-aligned Parquet layout.
+Convert Bloomberg CSV exports to the Pinnacle-aligned Parquet layout.
 
 Usage:
-    python scripts/convert_bloomberg_to_parquet.py [--symbol-map PATH ...]
+    python scripts/convert_bloomberg_to_parquet.py INPUT_DIR [--output-dir DIR] [--symbol-map PATH ...]
+
+Examples:
+    # Convert CSVs from specific folder to default output location
+    python scripts/convert_bloomberg_to_parquet.py data/bloomberg/future_data/original_individual_csvs
+
+    # Specify custom output directory
+    python scripts/convert_bloomberg_to_parquet.py data/bloomberg/raw --output-dir data/bloomberg/processed
 
 Workflow:
 1. Reads symbol metadata from the canonical & expanded symbol map CSVs
-2. Scans data/bloomberg/raw for Excel/CSV exports
-3. Converts each column to Parquet using Pinnacle IDs for filenames
+2. Scans the input directory for CSV files
+3. Converts each CSV to individual Parquet files using Pinnacle IDs for filenames
 
-Input format: Bloomberg BDH exports (Excel worksheet or CSV per symbol)
+Input format: Individual Bloomberg CSV files (one per symbol)
 Output format: data/bloomberg/<PinnacleID>.parquet with standardized schema
 """
 
@@ -161,60 +168,19 @@ def convert_csv_to_parquet(csv_path: Path, output_dir: Path, mapper: SymbolMappe
         print(f"  ERROR processing {pretty_name}: {e}")
 
 
-def convert_excel_to_parquet(excel_path: Path, output_dir: Path, mapper: SymbolMapper) -> None:
-    """
-    Convert Bloomberg Excel export (multiple symbols) to individual Parquet files.
-
-    Assumes BDH formula created a wide table with:
-    - First column: dates
-    - Subsequent columns: prices for each symbol
-
-    Args:
-        excel_path: Path to Excel file
-        output_dir: Directory to save Parquet files
-    """
-    print(f"Processing Excel file: {excel_path}")
-
-    try:
-        # Read Excel file
-        df = pd.read_excel(excel_path, engine='openpyxl')
-
-        # First column should be dates
-        date_col = df.columns[0]
-        df[date_col] = pd.to_datetime(df[date_col])
-        df = df.set_index(date_col)
-
-        # Each remaining column is a symbol
-        for symbol_col in df.columns:
-            targets = determine_output_symbols(symbol_col, mapper)
-            pretty_name = targets[0][1] or symbol_col
-            target_labels = ", ".join(sym for sym, _ in targets)
-            print(f"Processing {pretty_name} → {target_labels}...")
-
-            # Extract single symbol series
-            prices = df[symbol_col].dropna()
-
-            if len(prices) == 0:
-                print(f"  WARNING: {pretty_name} has no data")
-                continue
-
-            # Create DataFrame with standard schema
-            symbol_df = pd.DataFrame({'price': prices})
-
-            # Save to Parquet
-            for output_symbol, _ in targets:
-                output_path = output_dir / f"{output_symbol}.parquet"
-                symbol_df.to_parquet(output_path, engine='pyarrow', compression='snappy')
-                print(f"  ✓ Converted {output_symbol}: {len(symbol_df)} rows ({symbol_df.index.min()} to {symbol_df.index.max()})")
-
-    except Exception as e:
-        print(f"  ERROR processing Excel file: {e}")
-        sys.exit(1)
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Convert Bloomberg Excel/CSV exports into Parquet files."
+        description="Convert Bloomberg CSV exports into Parquet files."
+    )
+    parser.add_argument(
+        "input_dir",
+        type=Path,
+        help="Directory containing Bloomberg CSV files to convert",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        help="Directory to save Parquet files (defaults to data/bloomberg)",
     )
     parser.add_argument(
         "--symbol-map",
@@ -245,47 +211,47 @@ def main():
 
     # Paths
     project_root = Path(__file__).parent.parent
-    raw_dir = project_root / "data" / "bloomberg" / "raw"
-    output_dir = project_root / "data" / "bloomberg"
+    input_dir = args.input_dir if args.input_dir.is_absolute() else (Path.cwd() / args.input_dir)
+    output_dir = args.output_dir if args.output_dir else (project_root / "data" / "bloomberg")
+    if not output_dir.is_absolute():
+        output_dir = Path.cwd() / output_dir
+
     symbol_map_paths = build_symbol_map_paths(project_root, args.symbol_map)
     mapper = SymbolMapper(symbol_map_paths)
+
+    # Validate input directory exists
+    if not input_dir.exists():
+        print(f"ERROR: Input directory does not exist: {input_dir}")
+        sys.exit(1)
+
+    if not input_dir.is_dir():
+        print(f"ERROR: Input path is not a directory: {input_dir}")
+        sys.exit(1)
 
     # Create output directory if needed
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 60)
-    print("Bloomberg Data Conversion: CSV/Excel → Parquet")
+    print("Bloomberg Data Conversion: CSV → Parquet")
     print("=" * 60)
+    print(f"Input directory:  {input_dir}")
+    print(f"Output directory: {output_dir}")
     print()
 
-    # Check for Excel file first (single file with all symbols)
-    excel_files = list(raw_dir.glob("*.xlsx")) + list(raw_dir.glob("*.xls"))
+    # Find all CSV files
+    csv_files = list(input_dir.glob("*.csv"))
 
-    if excel_files:
-        print(f"Found Excel file(s): {[f.name for f in excel_files]}")
-        print("Processing Excel export...")
-        print()
-
-        for excel_file in excel_files:
-            convert_excel_to_parquet(excel_file, output_dir, mapper)
-
-    # Also check for individual CSVs
-    csv_files = list(raw_dir.glob("*.csv"))
-
-    if csv_files:
-        print(f"\nFound {len(csv_files)} CSV file(s)")
-        print("Processing individual CSVs...")
-        print()
-
-        for csv_file in csv_files:
-            convert_csv_to_parquet(csv_file, output_dir, mapper)
-
-    if not excel_files and not csv_files:
-        print(f"ERROR: No CSV or Excel files found in {raw_dir}")
-        print("\nExpected file locations:")
-        print(f"  - Excel: {raw_dir}/*.xlsx")
-        print(f"  - CSVs: {raw_dir}/*.csv")
+    if not csv_files:
+        print(f"ERROR: No CSV files found in {input_dir}")
+        print("\nExpected file pattern: *.csv")
         sys.exit(1)
+
+    print(f"Found {len(csv_files)} CSV file(s)")
+    print("Processing individual CSVs...")
+    print()
+
+    for csv_file in csv_files:
+        convert_csv_to_parquet(csv_file, output_dir, mapper)
 
     print()
     print("=" * 60)

@@ -60,19 +60,7 @@ Follow the detailed instructions in: [`BLOOMBERG_EXPORT_INSTRUCTIONS.md`](./BLOO
 
 ### 2. At Home - Convert to Parquet
 
-**Option A: Standard Excel/CSV exports** (recommended for new exports)
-
-Place your Bloomberg export in `data/bloomberg/raw/`:
-- Excel file: `data/bloomberg/raw/bloomberg_export.xlsx`
-- OR CSV files: `data/bloomberg/raw/*.csv`
-
-Run the conversion script:
-
-```bash
-uv run python scripts/convert_bloomberg_to_parquet.py
-```
-
-**Option B: Wide-format CSV (legacy format)**
+**Option A: Wide-format CSV (legacy format)**
 
 If you have wide-format CSVs (ticker, date, price, empty, ticker, date, price, ...):
 
@@ -85,10 +73,26 @@ uv run python scripts/reshape_bloomberg_csv.py \
 
 2. Then convert to parquet:
 ```bash
-uv run python scripts/convert_bloomberg_to_parquet.py
+uv run python scripts/convert_bloomberg_to_parquet.py \
+  data/bloomberg/future_data/original_individual_csvs
 ```
 
-**Output:** Creates `.parquet` files in `data/bloomberg/`
+**Option B: Individual CSV files** (recommended for new exports)
+
+If you already have individual CSV files (one per symbol):
+
+```bash
+uv run python scripts/convert_bloomberg_to_parquet.py data/bloomberg/raw
+```
+
+**Custom output directory:**
+```bash
+uv run python scripts/convert_bloomberg_to_parquet.py \
+  data/bloomberg/raw \
+  --output-dir data/bloomberg/processed
+```
+
+**Output:** Creates `.parquet` files in `data/bloomberg/` (or your specified output directory)
 
 > The converter auto-loads both `symbol_map.csv` and `symbol_map_expanded.csv` when present. Use `--symbol-map path/to/custom.csv` (repeatable) to override.
 
@@ -431,6 +435,25 @@ date,price
 **Results:**
 - `original_individual_csvs/`: 48 files (352,677 total rows)
 - `extended_individual_csvs/`: 24 files (166,321 total rows)
+
+### Converting to Parquet
+
+After reshaping, convert the individual CSVs to Parquet:
+
+```bash
+# Convert original 50 tickers
+uv run python scripts/convert_bloomberg_to_parquet.py \
+  data/bloomberg/future_data/original_individual_csvs
+
+# Convert extended 24 tickers
+uv run python scripts/convert_bloomberg_to_parquet.py \
+  data/bloomberg/future_data/extended_individual_csvs
+
+# Or convert both at once by pointing to a directory containing all CSVs
+# (after combining original_individual_csvs and extended_individual_csvs)
+uv run python scripts/convert_bloomberg_to_parquet.py \
+  data/bloomberg/future_data/all_individual_csvs
+```
 
 ### Extended Asset Classes
 

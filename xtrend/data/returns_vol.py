@@ -19,11 +19,13 @@ def simple_returns(prices: "Any") -> "Any":
 
     Notes:
         Use pandas vectorized operations; no custom loops in real implementation.
+        Missing values are NOT forward-filled - they result in NaN returns.
     """
     import pandas as pd
 
     # Equation 1 from paper: r_t = (p_t - p_{t-1}) / p_{t-1}
-    return prices.pct_change()
+    # Explicitly disable fill_method to avoid FutureWarning
+    return prices.pct_change(fill_method=None)
 
 def multi_scale_returns(prices: "Any", scales: "List[int]" = [1, 21, 63, 126, 252]) -> "Dict[int, Any]":
     """

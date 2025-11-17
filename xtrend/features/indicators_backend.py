@@ -7,6 +7,7 @@ All functions/classes contain only docstrings and 'pass' bodies.
 """
 from __future__ import annotations
 from typing import Any, Dict, Iterable, Iterator, List, Literal, Mapping, MutableMapping, Optional, Sequence, Tuple, Union, Protocol, NamedTuple
+import numpy as np
 def macd(prices: "Any",
          short: int,
          long: int,
@@ -23,9 +24,116 @@ def macd(prices: "Any",
         backend: 'talib' (C-backed) or 'ta' (pure Python).
 
     Returns:
-        A structure with MACD line, signal, and histogram.
+        A DataFrame with MACD line, signal, and histogram.
 
     Notes:
-        This is a declaration only; actual calls delegate to chosen backend.
+        This is a wrapper around the ta library's MACD indicator.
     """
-    pass
+    import pandas as pd
+
+    if backend == "ta":
+        from ta.trend import MACD
+
+        # ta library expects Series
+        if isinstance(prices, pd.DataFrame):
+            raise ValueError("MACD expects a Series, not DataFrame. Process one column at a time.")
+
+        macd_indicator = MACD(close=prices, window_slow=long, window_fast=short, window_sign=signal)
+
+        # Return DataFrame with MACD components
+        return pd.DataFrame({
+            'trend_macd': macd_indicator.macd(),
+            'trend_macd_signal': macd_indicator.macd_signal(),
+            'trend_macd_diff': macd_indicator.macd_diff(),
+        }, index=prices.index)
+
+    elif backend == "talib":
+        import talib
+        macd_line, signal_line, histogram = talib.MACD(
+            prices.values,
+            fastperiod=short,
+            slowperiod=long,
+            signalperiod=signal
+        )
+        return pd.DataFrame({
+            'macd': macd_line,
+            'signal': signal_line,
+            'histogram': histogram,
+        }, index=prices.index)
+
+    else:
+        raise ValueError(f"Unknown backend: {backend}")
+
+def macd_multi_scale(prices: "Any",
+                     timescale_pairs: "List[Tuple[int, int]]" = [(8, 24), (16, 28), (32, 96)],
+                     backend: Literal["talib", "ta"] = "ta") -> "Any":
+    """
+    Compute MACD for multiple timescale pairs across all assets.
+
+    Args:
+        prices: Wide DataFrame indexed by date (columns = symbols)
+        timescale_pairs: List of (short, long) EMA pairs
+        backend: 'talib' or 'ta'
+
+    Returns:
+        Wide DataFrame with MACD features for each asset and timescale pair
+        Columns: [ASSET_MACD_SHORT_LONG, ...]
+
+    Notes:
+        Paper uses timescale pairs: (8,24), (16,28), (32,96)
+    """
+    import pandas as pd
+
+    macd_features = {}
+
+    for asset in prices.columns:
+        for short, long in timescale_pairs:
+            # Compute MACD for this asset and timescale
+            macd_result = macd(prices[asset], short=short, long=long, backend=backend)
+
+            # Extract MACD line (column name varies)
+            macd_col = [c for c in macd_result.columns if 'macd' in c.lower() and 'signal' not in c.lower() and 'diff' not in c.lower()][0]
+
+            # Store with descriptive column name
+            col_name = f'{asset}_MACD_{short}_{long}'
+            macd_features[col_name] = macd_result[macd_col]
+
+    return pd.DataFrame(macd_features, index=prices.index)
+
+def macd_normalized(prices: "Any",
+                   short: int,
+                   long: int,
+                   norm_window: int = 252,
+                   backend: Literal["talib", "ta"] = "ta") -> "Any":
+    """
+    Compute normalized MACD: MACD / rolling_std(MACD, norm_window).
+
+    Args:
+        prices: Series of close prices
+        short: Fast EMA span
+        long: Slow EMA span
+        norm_window: Window for rolling normalization (default 252 days)
+        backend: 'talib' or 'ta'
+
+    Returns:
+        Series of normalized MACD values
+
+    Notes:
+        Equation 4 from paper: MACD normalized by 252-day rolling std
+    """
+    import pandas as pd
+
+    # Calculate raw MACD
+    macd_result = macd(prices, short=short, long=long, backend=backend)
+
+    # Extract MACD line
+    macd_col = [c for c in macd_result.columns if 'macd' in c.lower() and 'signal' not in c.lower() and 'diff' not in c.lower()][0]
+    raw_macd = macd_result[macd_col]
+
+    # Normalize by rolling standard deviation
+    rolling_std = raw_macd.rolling(window=norm_window, min_periods=20).std()
+
+    # Avoid division by zero
+    normalized = raw_macd / rolling_std.replace(0, np.nan)
+
+    return normalized

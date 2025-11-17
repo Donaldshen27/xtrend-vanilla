@@ -3,6 +3,7 @@
 from xtrend.cpd.gp_fitter import GPFitter
 from xtrend.cpd.segmenter import GPCPDSegmenter
 from xtrend.cpd.types import CPDConfig, RegimeSegment, RegimeSegments
+from xtrend.cpd.validation import ValidationCheck, ValidationReport
 
 __all__ = [
     "CPDConfig",
@@ -10,4 +11,6 @@ __all__ = [
     "RegimeSegments",
     "GPFitter",
     "GPCPDSegmenter",
+    "ValidationCheck",
+    "ValidationReport",
 ]

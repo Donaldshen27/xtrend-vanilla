@@ -29,8 +29,8 @@ def synthetic_changepoint_data():
     x = torch.arange(30).float().unsqueeze(-1)
 
     # Two different regimes
-    y1 = torch.sin(x[:15] / 5.0) + 0.1 * torch.randn(15)
-    y2 = -torch.sin(x[15:] / 5.0) + 2.0 + 0.1 * torch.randn(15)
+    y1 = torch.sin(x[:15] / 5.0).squeeze() + 0.1 * torch.randn(15)
+    y2 = -torch.sin(x[15:] / 5.0).squeeze() + 2.0 + 0.1 * torch.randn(15)
     y = torch.cat([y1, y2])
 
     return x, y, 15

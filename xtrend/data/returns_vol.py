@@ -64,6 +64,12 @@ def normalized_returns(prices: "Any", scale: int, vol_window: int = 252) -> "Any
 
     Notes:
         Equation 5 from paper: Normalizes by realized volatility and sqrt(scale)
+
+        Assumes i.i.d. returns: normalization assumes returns are independent
+        and identically distributed, which enables the √t' scaling.
+
+        Epsilon clipping: sigma_t is clipped to 1e-8 minimum to prevent
+        division by zero when volatility collapses during low-activity periods.
     """
     import pandas as pd
     import numpy as np
@@ -75,7 +81,12 @@ def normalized_returns(prices: "Any", scale: int, vol_window: int = 252) -> "Any
     daily_returns = simple_returns(prices)
 
     # Rolling standard deviation (realized volatility)
-    sigma_t = daily_returns.rolling(window=vol_window, min_periods=20).std()
+    # Use proportional min_periods to avoid issues with small windows
+    min_periods = min(20, vol_window // 2)
+    sigma_t = daily_returns.rolling(window=vol_window, min_periods=min_periods).std()
+
+    # Clip sigma_t to prevent division by zero when volatility collapses
+    sigma_t = sigma_t.clip(lower=1e-8)
 
     # Normalize: r̂ = r / (σ_t * √scale)
     normalized = raw_returns / (sigma_t * np.sqrt(scale))
@@ -110,11 +121,25 @@ def apply_vol_target(positions: "Any", sigma_t: "Any", sigma_target: float) -> "
 
     Returns:
         Volatility-targeted positions (wide DataFrame).
+
+    Notes:
+        Epsilon clipping: sigma_t is clipped to 1e-8 minimum to prevent
+        division by zero when volatility collapses.
+
+        Max leverage cap: Leverage is capped at 10x to prevent infinite
+        positions during extreme low-volatility periods. This is a reasonable
+        limit for futures markets where typical leverage ranges from 1x-10x.
     """
     import pandas as pd
 
+    # Clip sigma_t to prevent division by zero when volatility collapses
+    sigma_t = sigma_t.clip(lower=1e-8)
+
     # Equation 2 from paper: leverage factor = σ_tgt / σ_t
     leverage = sigma_target / sigma_t
+
+    # Cap leverage to prevent infinite positions during extreme low volatility
+    leverage = leverage.clip(upper=10.0)
 
     # Apply leverage to positions
     return positions * leverage

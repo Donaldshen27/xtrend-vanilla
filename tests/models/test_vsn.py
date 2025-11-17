@@ -1,0 +1,70 @@
+"""Tests for Variable Selection Network."""
+import pytest
+import torch
+import numpy as np
+from xtrend.models.vsn import VariableSelectionNetwork
+from xtrend.models.types import ModelConfig
+
+
+class TestVariableSelectionNetwork:
+    def test_vsn_initialization(self, model_config):
+        """VSN initializes with correct dimensions."""
+        vsn = VariableSelectionNetwork(model_config)
+
+        # Should have feature-wise FFNs for each input feature
+        assert len(vsn.feature_ffns) == model_config.input_dim
+        assert vsn.feature_attention is not None
+
+    def test_vsn_forward_shape(self, model_config, sample_features):
+        """VSN produces correct output shape."""
+        vsn = VariableSelectionNetwork(model_config)
+
+        output, weights = vsn(sample_features)
+
+        batch_size, seq_len, _ = sample_features.shape
+        # Output should be (batch, seq_len, hidden_dim)
+        assert output.shape == (batch_size, seq_len, model_config.hidden_dim)
+        # Weights should be (batch, seq_len, input_dim)
+        assert weights.shape == (batch_size, seq_len, model_config.input_dim)
+
+    def test_vsn_weights_sum_to_one(self, model_config, sample_features):
+        """VSN attention weights sum to 1 (Softmax property)."""
+        vsn = VariableSelectionNetwork(model_config)
+
+        _, weights = vsn(sample_features)
+
+        # Weights should sum to 1 across features dimension
+        weight_sums = weights.sum(dim=-1)
+        assert torch.allclose(weight_sums, torch.ones_like(weight_sums), atol=1e-6)
+
+    def test_vsn_weights_non_negative(self, model_config, sample_features):
+        """VSN attention weights are non-negative (Softmax property)."""
+        vsn = VariableSelectionNetwork(model_config)
+
+        _, weights = vsn(sample_features)
+
+        assert (weights >= 0).all()
+
+    def test_vsn_equation_13(self, model_config):
+        """VSN implements Equation 13 from paper."""
+        # Equation 13: VSN(x_t) = Σ w_{t,j} * FFN_j(x_{t,j})
+        # where w_t = Softmax(FFN(x_t))
+
+        vsn = VariableSelectionNetwork(model_config)
+        vsn.eval()
+
+        # Simple input: 1 sample, 1 timestep, 8 features
+        x = torch.randn(1, 1, 8)
+
+        with torch.no_grad():
+            output, weights = vsn(x)
+
+        # Manually verify weighted sum
+        # Each feature gets processed by its FFN, then weighted
+        manual_output = torch.zeros(1, 1, model_config.hidden_dim)
+        for j in range(model_config.input_dim):
+            feature_j = x[:, :, j:j+1]  # (1, 1, 1)
+            processed_j = vsn.feature_ffns[j](feature_j)  # (1, 1, hidden_dim)
+            manual_output += weights[:, :, j:j+1] * processed_j
+
+        assert torch.allclose(output, manual_output, atol=1e-5)

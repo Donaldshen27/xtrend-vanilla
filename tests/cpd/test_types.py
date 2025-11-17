@@ -80,6 +80,36 @@ class TestRegimeSegments:
 
 
 class TestCPDConfigValidation:
+    def test_negative_min_length_raises(self):
+        """min_length must be positive (negative case)."""
+        with pytest.raises(ValueError, match="min_length.*must be positive"):
+            CPDConfig(min_length=-5, max_length=21, lookback=21)
+
+    def test_negative_max_length_raises(self):
+        """max_length must be positive (negative case)."""
+        with pytest.raises(ValueError, match="max_length.*must be positive"):
+            CPDConfig(min_length=5, max_length=-10, lookback=21)
+
+    def test_negative_lookback_raises(self):
+        """lookback must be positive (negative case)."""
+        with pytest.raises(ValueError, match="lookback.*must be positive"):
+            CPDConfig(lookback=-21, min_length=5, max_length=21)
+
+    def test_zero_min_length_raises(self):
+        """min_length must be positive (zero case)."""
+        with pytest.raises(ValueError, match="min_length.*must be positive"):
+            CPDConfig(min_length=0, max_length=21, lookback=21)
+
+    def test_zero_max_length_raises(self):
+        """max_length must be positive (zero case)."""
+        with pytest.raises(ValueError, match="max_length.*must be positive"):
+            CPDConfig(min_length=5, max_length=0, lookback=21)
+
+    def test_zero_lookback_raises(self):
+        """lookback must be positive (zero case)."""
+        with pytest.raises(ValueError, match="lookback.*must be positive"):
+            CPDConfig(lookback=0, min_length=5, max_length=21)
+
     def test_lookback_less_than_min_length_raises(self):
         """lookback must be >= min_length."""
         with pytest.raises(ValueError, match="lookback.*must be >= min_length"):

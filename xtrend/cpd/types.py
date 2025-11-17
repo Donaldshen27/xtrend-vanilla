@@ -22,6 +22,12 @@ class CPDConfig:
 
     def __post_init__(self):
         """Validate configuration parameters."""
+        if self.min_length <= 0:
+            raise ValueError(f"min_length ({self.min_length}) must be positive")
+        if self.max_length <= 0:
+            raise ValueError(f"max_length ({self.max_length}) must be positive")
+        if self.lookback <= 0:
+            raise ValueError(f"lookback ({self.lookback}) must be positive")
         if self.lookback < self.min_length:
             raise ValueError(f"lookback ({self.lookback}) must be >= min_length ({self.min_length})")
         if self.min_length >= self.max_length:

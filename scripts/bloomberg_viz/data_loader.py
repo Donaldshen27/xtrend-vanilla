@@ -7,7 +7,7 @@ from typing import List, Dict, Tuple
 from datetime import datetime
 
 
-DATA_DIR = Path("data/bloomberg/processed")
+DATA_DIR = Path("data/bloomberg")
 
 
 @st.cache_data

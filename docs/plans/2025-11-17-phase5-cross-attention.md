@@ -146,7 +146,7 @@ Expected: All 3 tests PASS, confirming LSTM preserves temporal order
 
 **Step 3: Document decision**
 
-Add comment to plan:
+Add comment to plan - **COMPLETED:**
 - **Decision:** LSTM encoder from Phase 3 provides temporal modeling via recurrence
 - **Rationale:** Unlike Transformers, LSTMs inherently encode position through hidden state evolution
 - **Validation:** Tests confirm permutation sensitivity and temporal order preservation
@@ -155,7 +155,7 @@ Add comment to plan:
 **Step 4: Commit**
 
 ```bash
-git add tests/models/test_temporal_encoding.py
+git add tests/models/test_temporal_encoding.py docs/plans/2025-11-17-phase5-cross-attention.md
 git commit -m "test(attention): verify LSTM temporal encoding (Codex critical issue)"
 ```
 

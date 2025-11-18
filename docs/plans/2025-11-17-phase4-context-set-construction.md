@@ -10,6 +10,11 @@
 
 **Codex Review Applied:** Added padding masks, improved causality validation, fixed CPD truncation strategy, enhanced TDD with unit tests per sampler, added schema validation and caching.
 
+**Config Guard:** Declare `conf/context/time_equivalent.yaml` (Hydra stub) with
+`cap_by_aligned_symbols: true` so experiments cap `C` at the number of symbols
+that contain the aligned `[target_idx - l_t, target_idx)` window before calling
+`sample_time_equivalent`.
+
 ---
 
 ## Task 1: Create Context Set Types
@@ -611,17 +616,20 @@ class TestTimeEquivalentMethod:
         target_date = pd.Timestamp('2020-04-01')
         l_t = 63  # Target sequence length
 
+        available_symbols = len(sample_features['symbols'])
+        C = min(10, available_symbols)  # One aligned window per symbol
+
         batch = sample_time_equivalent(
             features=sample_features['features'],
             dates=sample_features['dates'],
             symbols=sample_features['symbols'],
             target_date=target_date,
-            C=10,
+            C=C,
             l_t=l_t,
             seed=42
         )
 
-        assert batch.C == 10
+        assert batch.C == C
         assert batch.max_length == l_t  # Same length as target
 
         # All sequences should be l_t days
@@ -649,6 +657,10 @@ class TestTimeEquivalentMethod:
         assert len(set(lengths)) == 1  # All same length
         assert lengths[0] == l_t
 ```
+
+> ⚠️ Each asset yields at most one aligned `l_t`-day window, so production
+> configs must cap `C` at `len(symbols_with_history(target_date, l_t))` to
+> prevent ValueErrors when data coverage is sparse.
 
 **Step 2: Run test to verify it fails**
 
@@ -1145,13 +1157,15 @@ class TestPhase4Integration:
         """Complete pipeline: Time-Equivalent method."""
         target_date = pd.Timestamp('2020-06-01')
         l_t = 63  # Target length
+        max_contexts = len(realistic_data['symbols'])
+        C = min(20, max_contexts)
 
         batch = sample_time_equivalent(
             features=realistic_data['features'],
             dates=realistic_data['dates'],
             symbols=realistic_data['symbols'],
             target_date=target_date,
-            C=20,
+            C=C,
             l_t=l_t,
             seed=42
         )
@@ -1159,8 +1173,11 @@ class TestPhase4Integration:
         # All sequences same length (time-aligned)
         assert all(seq.length == l_t for seq in batch.sequences)
         assert batch.verify_causality(target_date)
+        assert batch.C == C
 
         print(f"✓ Time-Equivalent: all sequences length={l_t}")
+
+        # Config note: training/inference must cap C by aligned symbols to avoid ValueErrors.
 
     def test_cpd_segmented_full_pipeline(self, realistic_data):
         """Complete pipeline: CPD-Segmented method (primary)."""

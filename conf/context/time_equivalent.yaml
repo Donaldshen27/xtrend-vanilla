@@ -1,0 +1,10 @@
+# Context sampler configuration (Hydra stub).
+#
+# The time-equivalent sampler can draw at most one aligned window per symbol.
+# Training/inference pipelines must set `effective_C = min(desired_sequences,
+# len(symbols_with_history(target_date, target_length)))` before calling
+# `sample_time_equivalent` to avoid runtime ValueErrors.
+method: time_equivalent
+target_length: 63
+desired_sequences: 20
+cap_by_aligned_symbols: true

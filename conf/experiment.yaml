@@ -5,6 +5,7 @@ defaults:
   - cpd: ruptures
   - trainer: lightning
   - backtest: vectorbt
+  - context: time_equivalent
 
 seed: 42
 eval_windows: ["1995-01-01..2023-12-31", "2013-01-01..2023-12-31", "2018-01-01..2023-12-31"]

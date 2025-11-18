@@ -325,6 +325,7 @@ print(f"Output range: [{output.min():.3f}, {output.max():.3f}]")
    - [x] Sample sequences with same length as target: l_c = l_t
    - [x] Align timesteps: k-th target attends to k-th context
    - [x] Create time-aligned hidden state representations
+   - [x] Document config guard: cap C by number of aligned symbols per target date
 
 3. **CPD Segmented Method** (Primary method) ✅
    - [x] Use CPD to segment assets into regimes

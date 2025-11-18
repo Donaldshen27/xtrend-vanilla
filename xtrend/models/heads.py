@@ -1,34 +1,142 @@
-"""
-Predictive heads (Gaussian / Quantile) + PTP mapping.
+"""Prediction heads for X-Trend model variants."""
+import torch
+import torch.nn as nn
+from typing import Tuple
 
-IMPORTANT: This is a *skeleton* that avoids reinventing the wheel.
-It exposes interfaces that are thin wrappers/adapters around mature libraries.
-All functions/classes contain only docstrings and 'pass' bodies.
-"""
-from __future__ import annotations
-from typing import Any, Dict, Iterable, Iterator, List, Literal, Mapping, MutableMapping, Optional, Sequence, Tuple, Union, Protocol, NamedTuple
-class GaussianHead:
-    """Outputs (mu, sigma>0) for next-day returns. Use torch.distributions.Normal in real code."""
-    def __init__(self, hidden_dim: int):
-        """Initialize dimensions (declaration only)."""
-        pass
-    def forward(self, H: "Any") -> "Tuple[Any, Any]":
-        """Return (mu, sigma) (declaration only)."""
-        pass
+from xtrend.models.types import ModelConfig
 
-class QuantileHead:
-    """Outputs predictive quantiles; use PyTorch Forecasting QuantileLoss or TorchMetrics pinball during training."""
-    def __init__(self, hidden_dim: int, quantiles: "Sequence[float]"):
-        """Initialize with quantile set (declaration only)."""
-        pass
-    def forward(self, H: "Any") -> "Any":
-        """Return q (B, Q) (declaration only)."""
-        pass
 
-def PTP_G(mu: "Any", sigma: "Any") -> "Any":
-    """Map (mu, sigma) to bounded position in [-1,1]; small FFN+tanh in practice (declaration only)."""
-    pass
+class PositionHead(nn.Module):
+    """Direct position prediction head for X-Trend (Equation 7).
 
-def PTP_Q(q: "Any") -> "Any":
-    """Map quantile vector to bounded position in [-1,1]; asymmetric weighting in practice (declaration only)."""
-    pass
+    Maps decoder output directly to trading position z ∈ (-1, 1).
+
+    Args:
+        config: Model configuration
+    """
+
+    def __init__(self, config: ModelConfig):
+        super().__init__()
+        self.config = config
+
+        # Single linear layer + tanh
+        # Equation 7: z = tanh(Linear(g(x)))
+        self.linear = nn.Linear(config.hidden_dim, 1)
+
+    def forward(self, decoder_output: torch.Tensor) -> torch.Tensor:
+        """Predict trading positions.
+
+        Args:
+            decoder_output: Decoder hidden states (batch, seq_len, hidden_dim)
+
+        Returns:
+            positions: Trading positions (batch, seq_len) in (-1, 1)
+        """
+        # Linear projection + tanh
+        logits = self.linear(decoder_output).squeeze(-1)  # (batch, seq_len)
+        positions = torch.tanh(logits)
+        return positions
+
+
+class GaussianHead(nn.Module):
+    """Gaussian prediction head for X-Trend-G (Equation 20).
+
+    Predicts mean μ and standard deviation σ of return distribution.
+
+    Args:
+        config: Model configuration
+    """
+
+    def __init__(self, config: ModelConfig):
+        super().__init__()
+        self.config = config
+
+        # Separate networks for mean and std
+        self.mean_net = nn.Sequential(
+            nn.Linear(config.hidden_dim, config.hidden_dim // 2),
+            nn.GELU(),
+            nn.Dropout(config.dropout),
+            nn.Linear(config.hidden_dim // 2, 1)
+        )
+
+        self.std_net = nn.Sequential(
+            nn.Linear(config.hidden_dim, config.hidden_dim // 2),
+            nn.GELU(),
+            nn.Dropout(config.dropout),
+            nn.Linear(config.hidden_dim // 2, 1)
+        )
+
+    def forward(self, decoder_output: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Predict Gaussian parameters.
+
+        Args:
+            decoder_output: Decoder hidden states (batch, seq_len, hidden_dim)
+
+        Returns:
+            mean: Predicted mean (batch, seq_len)
+            std: Predicted std dev (batch, seq_len), positive
+        """
+        mean = self.mean_net(decoder_output).squeeze(-1)  # (batch, seq_len)
+        std_logits = self.std_net(decoder_output).squeeze(-1)
+
+        # ✅ FIXED: Ensure std is positive and safe after squaring (Issue #5)
+        # σ = softplus(logits) + 1e-3 (safe after squaring to variance)
+        std = torch.nn.functional.softplus(std_logits) + 1e-3
+
+        return mean, std
+
+
+class QuantileHead(nn.Module):
+    """Quantile prediction head for X-Trend-Q (Equation 22).
+
+    Predicts multiple quantiles of return distribution.
+
+    Paper uses 13 quantiles:
+    [0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99]
+
+    Args:
+        config: Model configuration
+        num_quantiles: Number of quantiles to predict (default: 13)
+    """
+
+    def __init__(self, config: ModelConfig, num_quantiles: int = 13):
+        super().__init__()
+        self.config = config
+        self.num_quantiles = num_quantiles
+
+        # Network to predict all quantiles
+        self.quantile_net = nn.Sequential(
+            nn.Linear(config.hidden_dim, config.hidden_dim),
+            nn.GELU(),
+            nn.Dropout(config.dropout),
+            nn.Linear(config.hidden_dim, num_quantiles)
+        )
+
+    def forward(self, decoder_output: torch.Tensor) -> torch.Tensor:
+        """Predict quantiles.
+
+        Args:
+            decoder_output: Decoder hidden states (batch, seq_len, hidden_dim)
+
+        Returns:
+            quantiles: Predicted quantiles (batch, seq_len, num_quantiles)
+                Monotonically increasing along last dimension
+        """
+        # Predict quantile differences (ensure ordering)
+        raw_quantiles = self.quantile_net(decoder_output)  # (batch, seq_len, num_quantiles)
+
+        # ✅ FIXED: Vectorized monotonicity enforcement (Issue #9)
+        # First quantile (no constraint)
+        first_quantile = raw_quantiles[:, :, :1]
+
+        # Remaining quantiles as positive increments
+        increments = torch.nn.functional.softplus(raw_quantiles[:, :, 1:])
+
+        # Cumulative sum ensures monotonicity
+        # quantiles = [q_0, q_0 + inc_1, q_0 + inc_1 + inc_2, ...]
+        quantiles = torch.cat([
+            first_quantile,
+            first_quantile + torch.cumsum(increments, dim=-1)
+        ], dim=-1)  # Vectorized, single backward pass
+
+        return quantiles

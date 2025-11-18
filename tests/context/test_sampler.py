@@ -4,8 +4,9 @@ import torch
 import pandas as pd
 import numpy as np
 
-from xtrend.context.sampler import sample_final_hidden_state, sample_time_equivalent
+from xtrend.context.sampler import sample_final_hidden_state, sample_time_equivalent, sample_cpd_segmented
 from xtrend.context.types import ContextBatch
+from xtrend.cpd import RegimeSegment, RegimeSegments, CPDConfig
 
 
 class TestFinalHiddenStateMethod:
@@ -237,3 +238,123 @@ class TestTimeEquivalentMethod:
         lengths = [seq.length for seq in batch.sequences]
         assert len(set(lengths)) == 1  # All same length
         assert lengths[0] == l_t
+
+
+class TestCPDSegmentedMethod:
+    """Test CPD-Segmented sampling method (primary method from paper)."""
+
+    @pytest.fixture
+    def sample_regimes(self):
+        """Create sample regime segmentations."""
+        dates = pd.date_range('2020-01-01', '2020-04-10', freq='D')
+
+        # Create regimes for 3 assets
+        regimes = {}
+        config = CPDConfig(min_length=5, max_length=21)
+
+        for asset_id in range(3):
+            symbol = f"ASSET{asset_id}"
+            segments = []
+
+            # Create 5 regimes per asset
+            start_idx = 0
+            for i in range(5):
+                length = np.random.randint(5, 22)
+                end_idx = min(start_idx + length - 1, len(dates) - 1)
+
+                seg = RegimeSegment(
+                    start_idx=start_idx,
+                    end_idx=end_idx,
+                    severity=0.95,
+                    start_date=dates[start_idx],
+                    end_date=dates[end_idx]
+                )
+                segments.append(seg)
+
+                start_idx = end_idx + 1
+                if start_idx >= len(dates):
+                    break
+
+            regimes[symbol] = RegimeSegments(segments=segments, config=config)
+
+        return regimes
+
+    @pytest.fixture
+    def sample_features(self):
+        """Create sample feature panel."""
+        dates = pd.date_range('2020-01-01', '2020-04-10', freq='D')
+        features = {}
+        np.random.seed(42)
+        for asset_id in range(3):
+            features[f"ASSET{asset_id}"] = torch.randn(len(dates), 8)
+
+        return {
+            'features': features,
+            'dates': dates,
+            'symbols': [f"ASSET{i}" for i in range(3)]
+        }
+
+    def test_sample_cpd_segmented_basic(self, sample_features, sample_regimes):
+        """Sample C regime sequences from CPD segmentation."""
+        target_date = pd.Timestamp('2020-04-01')
+
+        batch = sample_cpd_segmented(
+            features=sample_features['features'],
+            dates=sample_features['dates'],
+            symbols=sample_features['symbols'],
+            regimes=sample_regimes,
+            target_date=target_date,
+            C=10,
+            max_length=21,
+            seed=42
+        )
+
+        assert isinstance(batch, ContextBatch)
+        assert batch.C == 10
+        assert batch.max_length <= 21
+
+        # Verify causality
+        assert batch.verify_causality(target_date)
+
+        # Verify method
+        for seq in batch.sequences:
+            assert seq.method == "cpd_segmented"
+            assert seq.length <= 21  # Respect max_length
+
+    def test_respects_max_length(self, sample_features, sample_regimes):
+        """Long regimes truncated to max_length."""
+        target_date = pd.Timestamp('2020-03-15')
+
+        batch = sample_cpd_segmented(
+            features=sample_features['features'],
+            dates=sample_features['dates'],
+            symbols=sample_features['symbols'],
+            regimes=sample_regimes,
+            target_date=target_date,
+            C=5,
+            max_length=10,  # Short max
+            seed=42
+        )
+
+        # No sequence should exceed max_length
+        for seq in batch.sequences:
+            assert seq.length <= 10
+
+    def test_regime_diversity(self, sample_features, sample_regimes):
+        """Context set includes regimes from multiple assets."""
+        target_date = pd.Timestamp('2020-04-01')
+
+        batch = sample_cpd_segmented(
+            features=sample_features['features'],
+            dates=sample_features['dates'],
+            symbols=sample_features['symbols'],
+            regimes=sample_regimes,
+            target_date=target_date,
+            C=10,
+            max_length=21,
+            seed=42
+        )
+
+        # Should have regimes from multiple entities
+        entity_ids = {seq.entity_id.item() for seq in batch.sequences}
+        assert len(entity_ids) > 1  # Multiple assets represented

@@ -18,6 +18,7 @@ Usage:
 
 import argparse
 import json
+import pickle
 import warnings
 from datetime import datetime
 from pathlib import Path
@@ -74,6 +75,7 @@ class XTrendDataset(Dataset):
         min_history: int = 252,
         cpd_config: Optional[CPDConfig] = None,
         seed: Optional[int] = None,
+        cpd_cache_dir: Optional[str] = None,
     ):
         """
         Args:
@@ -87,6 +89,7 @@ class XTrendDataset(Dataset):
             min_history: Minimum history needed (default: 252 days)
             cpd_config: Optional CPDConfig override
             seed: Optional RNG seed for deterministic sampling
+            cpd_cache_dir: Optional directory for caching CPD regimes
         """
         self.prices = prices
         self.dates = prices.index
@@ -99,6 +102,9 @@ class XTrendDataset(Dataset):
         self.min_history = min_history
         self.seed = seed
         self._fallback_warned = False
+        self.cpd_cache_dir = Path(cpd_cache_dir).expanduser() if cpd_cache_dir else None
+        if self.cpd_cache_dir:
+            self.cpd_cache_dir.mkdir(parents=True, exist_ok=True)
 
         # Precompute features and returns for all symbols
         print("Precomputing Phase 1 features and returns...")
@@ -150,8 +156,16 @@ class XTrendDataset(Dataset):
                 price_series = self._prepare_price_series(prices[symbol])
                 if price_series.isna().all():
                     continue
+                cache_path = self._regime_cache_path(symbol)
+                if cache_path and cache_path.exists():
+                    cached = self._load_cached_regimes(cache_path)
+                    if cached is not None:
+                        self.regimes[symbol] = cached
+                        continue
                 try:
                     self.regimes[symbol] = segmenter.fit_segment(price_series)
+                    if cache_path:
+                        self._save_cached_regimes(cache_path, self.regimes[symbol])
                 except Exception as exc:
                     warnings.warn(
                         f"CPD segmentation failed for {symbol}: {exc}. "
@@ -220,6 +234,39 @@ class XTrendDataset(Dataset):
                 samples.append((symbol, start_idx))
 
         return samples
+
+    def _regime_cache_path(self, symbol: str) -> Optional[Path]:
+        """Create deterministic cache path for a symbol/config/span."""
+        if not self.cpd_cache_dir:
+            return None
+        start = pd.Timestamp(self.dates[0]).strftime("%Y%m%d")
+        end = pd.Timestamp(self.dates[-1]).strftime("%Y%m%d")
+        cfg = self.cpd_config
+        token = (
+            f"{start}_{end}_{len(self.dates)}_"
+            f"lb{cfg.lookback}_th{cfg.threshold:.2f}_"
+            f"min{cfg.min_length}_max{cfg.max_length}"
+        )
+        filename = f"{symbol}_{token}.pkl"
+        return self.cpd_cache_dir / filename
+
+    def _load_cached_regimes(self, path: Path):
+        """Load cached regimes for a symbol."""
+        try:
+            with path.open("rb") as fh:
+                payload = pickle.load(fh)
+            return payload.get("segments")
+        except Exception as exc:
+            warnings.warn(f"Failed to load CPD cache {path}: {exc}")
+            return None
+
+    def _save_cached_regimes(self, path: Path, segments):
+        """Persist regimes to cache for reuse."""
+        try:
+            with path.open("wb") as fh:
+                pickle.dump({"segments": segments}, fh)
+        except Exception as exc:
+            warnings.warn(f"Failed to save CPD cache {path}: {exc}")
 
     def __len__(self):
         return len(self.samples)
@@ -622,6 +669,8 @@ def main():
                        help='Maximum GP-CPD regime length (days)')
     parser.add_argument('--context-seed', type=int, default=None,
                        help='Optional RNG seed for context sampling')
+    parser.add_argument('--cpd-cache-dir', type=str, default='data/bloomberg/cpd_cache',
+                       help='Directory for caching GP-CPD regimes (set empty to disable)')
     parser.add_argument('--resume', type=str, default=None,
                        help='Resume from checkpoint')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu',
@@ -673,7 +722,8 @@ def main():
         vol_target=0.15,
         min_history=args.min_history,
         cpd_config=cpd_config,
-        seed=args.context_seed
+        seed=args.context_seed,
+        cpd_cache_dir=args.cpd_cache_dir if args.cpd_cache_dir else None
     )
 
     print("\nCreating datasets with episodic context sampling...")

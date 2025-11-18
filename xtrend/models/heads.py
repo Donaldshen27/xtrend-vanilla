@@ -140,3 +140,85 @@ class QuantileHead(nn.Module):
         ], dim=-1)  # Vectorized, single backward pass
 
         return quantiles
+
+
+class PTP_G(nn.Module):
+    """Predictive To Position module for Gaussian head (Page 9).
+
+    Maps Gaussian parameters (mean, std) to trading position z ∈ (-1, 1).
+
+    Used for joint training: L = α * L_MLE + L_Sharpe^PTP_G
+
+    Args:
+        config: Model configuration
+    """
+
+    def __init__(self, config: ModelConfig):
+        super().__init__()
+        self.config = config
+
+        # ✅ FIXED: No dropout - paper specifies deterministic mapping (Issue #10)
+        self.ffn = nn.Sequential(
+            nn.Linear(2, config.hidden_dim // 2),
+            nn.GELU(),
+            nn.Linear(config.hidden_dim // 2, 1)
+        )
+
+    def forward(self, mean: torch.Tensor, std: torch.Tensor) -> torch.Tensor:
+        """Map Gaussian parameters to positions.
+
+        Args:
+            mean: Predicted mean (batch, seq_len)
+            std: Predicted std dev (batch, seq_len)
+
+        Returns:
+            positions: Trading positions (batch, seq_len) in (-1, 1)
+        """
+        # Stack mean and std
+        params = torch.stack([mean, std], dim=-1)  # (batch, seq_len, 2)
+
+        # FFN + tanh
+        logits = self.ffn(params).squeeze(-1)  # (batch, seq_len)
+        positions = torch.tanh(logits)
+
+        return positions
+
+
+class PTP_Q(nn.Module):
+    """Predictive To Position module for Quantile head (Page 9).
+
+    Maps quantile predictions to trading position z ∈ (-1, 1).
+
+    Used for joint training: L = α * L_QRE + L_Sharpe^PTP_Q
+
+    Args:
+        config: Model configuration
+        num_quantiles: Number of quantiles (default: 13)
+    """
+
+    def __init__(self, config: ModelConfig, num_quantiles: int = 13):
+        super().__init__()
+        self.config = config
+        self.num_quantiles = num_quantiles
+
+        # ✅ FIXED: No dropout - paper specifies deterministic mapping (Issue #10)
+        self.ffn = nn.Sequential(
+            nn.Linear(num_quantiles, config.hidden_dim // 2),
+            nn.GELU(),
+            nn.Linear(config.hidden_dim // 2, 1)
+        )
+
+    def forward(self, quantiles: torch.Tensor) -> torch.Tensor:
+        """Map quantiles to positions.
+
+        Args:
+            quantiles: Predicted quantiles (batch, seq_len, num_quantiles)
+
+        Returns:
+            positions: Trading positions (batch, seq_len) in (-1, 1)
+        """
+        # FFN + tanh
+        logits = self.ffn(quantiles).squeeze(-1)  # (batch, seq_len)
+        positions = torch.tanh(logits)
+
+        return positions

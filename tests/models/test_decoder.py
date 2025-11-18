@@ -77,3 +77,35 @@ class TestLSTMDecoder:
         output = decoder(target_features, cross_attn_output, entity_ids=None)
 
         assert output.hidden_states.shape == (batch_size, seq_len, config.hidden_dim)
+
+    def test_decoder_gradient_flow(self, config):
+        """Gradients flow from decoder output to both target_features and cross_attn_output."""
+        batch_size, seq_len = 2, 63
+
+        # Create inputs with gradient tracking enabled
+        target_features = torch.randn(batch_size, seq_len, config.input_dim, requires_grad=True)
+        cross_attn_output = torch.randn(batch_size, seq_len, config.hidden_dim, requires_grad=True)
+
+        entity_embedding = EntityEmbedding(config)
+        decoder = LSTMDecoder(config, use_entity=True, entity_embedding=entity_embedding)
+
+        # Forward pass
+        output = decoder(
+            target_features,
+            cross_attn_output,
+            entity_ids=torch.tensor([0, 1])
+        )
+
+        # Compute loss and backward pass
+        loss = output.hidden_states.sum()
+        loss.backward()
+
+        # Verify gradients exist and are not NaN
+        assert target_features.grad is not None, "No gradient for target_features"
+        assert cross_attn_output.grad is not None, "No gradient for cross_attn_output"
+        assert not torch.isnan(target_features.grad).any(), "NaN gradients in target_features"
+        assert not torch.isnan(cross_attn_output.grad).any(), "NaN gradients in cross_attn_output"
+
+        # Verify gradients are non-zero (gradients should flow)
+        assert target_features.grad.abs().sum() > 0, "Zero gradients for target_features"
+        assert cross_attn_output.grad.abs().sum() > 0, "Zero gradients for cross_attn_output"

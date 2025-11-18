@@ -1,48 +1,101 @@
-"""
-Context set sampler with strict test-time causality.
+"""Context set sampling methods with strict causality enforcement."""
+from typing import Dict, List, Optional
+import torch
+import pandas as pd
+import numpy as np
 
-IMPORTANT: This is a *skeleton* that avoids reinventing the wheel.
-It exposes interfaces that are thin wrappers/adapters around mature libraries.
-All functions/classes contain only docstrings and 'pass' bodies.
-"""
-from __future__ import annotations
-from typing import Any, Dict, Iterable, Iterator, List, Literal, Mapping, MutableMapping, Optional, Sequence, Tuple, Union, Protocol, NamedTuple
-def build_context_index(regimes_by_symbol: "Mapping[str, Any]",
-                        split: Literal["train", "val", "test"]) -> "Any":
-    """
-    Build an index of candidate context regimes across assets.
+from xtrend.context.types import ContextSequence, ContextBatch
 
-    Args:
-        regimes_by_symbol: Mapping symbol -> RegimeSegments.
-        split: Data split.
 
-    Returns:
-        Backend-specific index for efficient retrieval.
-    """
-    pass
+def sample_final_hidden_state(
+    features: Dict[str, torch.Tensor],
+    dates: pd.DatetimeIndex,
+    symbols: List[str],
+    target_date: pd.Timestamp,
+    C: int,
+    l_c: int,
+    seed: Optional[int] = None,
+    exclude_symbols: Optional[List[str]] = None
+) -> ContextBatch:
+    """Sample C random sequences of fixed length l_c (Final Hidden State method).
 
-def sample_contexts(target_symbol: str,
-                    t_end: int,
-                    mode: Literal["F", "T", "C"],
-                    C: int,
-                    l_c: int,
-                    split: Literal["train", "val", "test"],
-                    index: "Any",
-                    exclude_symbols: Optional["Sequence[str]"] = None) -> "ContextBatch":
-    """
-    Sample a context set for a target date using selected scheme.
+    This method samples random historical sequences and uses their final
+    hidden state as context for cross-attention.
 
     Args:
-        target_symbol: Target asset.
-        t_end: Target window end index in the aligned calendar.
-        mode: "F"=final-state, "T"=time-aligned, "C"=CPD-segmented.
-        C: Context set size.
-        l_c: Max context length.
-        split: Data split; enforce strict causality at test time.
-        index: Pre-built context index.
-        exclude_symbols: Optional symbols to exclude (e.g., zero-shot targets).
+        features: Dict mapping symbol -> feature tensor (T, input_dim)
+        dates: DatetimeIndex of length T
+        symbols: List of available symbols
+        target_date: Target sequence date (for causality)
+        C: Number of context sequences to sample
+        l_c: Fixed context length (days)
+        seed: Random seed for reproducibility
+        exclude_symbols: Symbols to exclude (for zero-shot)
 
     Returns:
-        ContextBatch suitable for cross-attention.
+        ContextBatch with C sequences of length l_c
     """
-    pass
+    if seed is not None:
+        np.random.seed(seed)
+
+    # Filter symbols
+    available_symbols = [s for s in symbols if exclude_symbols is None or s not in exclude_symbols]
+    if len(available_symbols) == 0:
+        raise ValueError("No symbols available after exclusions")
+
+    # Normalize target_date to match dates timezone
+    if dates.tz is None and target_date.tz is not None:
+        # dates is tz-naive, convert target_date to tz-naive
+        target_date_normalized = target_date.tz_localize(None)
+    elif dates.tz is not None and target_date.tz is None:
+        # dates is tz-aware, convert target_date to tz-aware
+        target_date_normalized = target_date.tz_localize(dates.tz)
+    else:
+        target_date_normalized = target_date
+
+    # Find target date index
+    target_idx = dates.get_loc(target_date_normalized)
+
+    # Build candidate sequences (all possible sequences before target)
+    candidates = []
+    for symbol in available_symbols:
+        entity_id = symbols.index(symbol)  # Map symbol to entity ID
+        feature_tensor = features[symbol]
+
+        # Sample all valid windows ending before target
+        # Valid window: [start_idx, end_idx] where end_idx < target_idx
+        max_end_idx = target_idx - 1
+        min_start_idx = l_c - 1  # Need at least l_c days
+
+        for end_idx in range(min_start_idx, max_end_idx + 1):
+            start_idx = end_idx - l_c + 1
+            candidates.append({
+                'symbol': symbol,
+                'entity_id': entity_id,
+                'start_idx': start_idx,
+                'end_idx': end_idx
+            })
+
+    if len(candidates) < C:
+        raise ValueError(f"Not enough causal candidates ({len(candidates)}) for C={C}")
+
+    # Random sample C sequences
+    selected = np.random.choice(len(candidates), size=C, replace=False)
+
+    sequences = []
+    for idx in selected:
+        cand = candidates[idx]
+
+        # Extract feature window
+        feature_window = features[cand['symbol']][cand['start_idx']:cand['end_idx']+1]
+
+        seq = ContextSequence(
+            features=feature_window,
+            entity_id=torch.tensor(cand['entity_id']),
+            start_date=dates[cand['start_idx']],
+            end_date=dates[cand['end_idx']],
+            method="final_hidden_state"
+        )
+        sequences.append(seq)
+
+    return ContextBatch(sequences=sequences)

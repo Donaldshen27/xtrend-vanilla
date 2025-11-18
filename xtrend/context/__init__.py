@@ -1,1 +1,12 @@
-"""xtrend.context — revised skeleton (adapters to existing libraries only)."""
+"""xtrend.context — Context set construction for few-shot learning."""
+from xtrend.context.types import (
+    ContextMethod,
+    ContextSequence,
+    ContextBatch,
+)
+
+__all__ = [
+    "ContextMethod",
+    "ContextSequence",
+    "ContextBatch",
+]

@@ -78,13 +78,15 @@ class TestPhase4Integration:
         """Complete pipeline: Time-Equivalent method."""
         target_date = pd.Timestamp('2020-06-01')
         l_t = 63  # Target length
+        max_contexts = len(realistic_data['symbols'])
+        C = min(20, max_contexts)
 
         batch = sample_time_equivalent(
             features=realistic_data['features'],
             dates=realistic_data['dates'],
             symbols=realistic_data['symbols'],
             target_date=target_date,
-            C=20,
+            C=C,
             l_t=l_t,
             seed=42
         )
@@ -92,6 +94,7 @@ class TestPhase4Integration:
         # All sequences same length (time-aligned)
         assert all(seq.length == l_t for seq in batch.sequences)
         assert batch.verify_causality(target_date)
+        assert batch.C == C
 
         print(f"✓ Time-Equivalent: all sequences length={l_t}")
 

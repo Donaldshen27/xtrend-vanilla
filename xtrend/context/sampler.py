@@ -164,31 +164,31 @@ def sample_time_equivalent(
     # Find target date index
     target_idx = dates.get_loc(target_timestamp)
 
-    # Build candidate sequences
+    if target_idx < l_t:
+        raise ValueError(
+            f"Target date {target_timestamp} does not have sufficient history for l_t={l_t}"
+        )
+
+    aligned_start_idx = target_idx - l_t
+    aligned_end_idx = target_idx - 1
+
+    # Build candidate sequences that exactly match the target window
     candidates = []
     for symbol in available_symbols:
         entity_id = symbols.index(symbol)
         feature_tensor = features[symbol]
         available_len = feature_tensor.shape[0]
 
-        if available_len < l_t:
+        # Symbol must have data covering the aligned window [aligned_start_idx, aligned_end_idx]
+        if available_len <= aligned_end_idx:
             continue
 
-        # Valid windows of length l_t ending before target
-        symbol_max_end_idx = min(target_idx - 1, available_len - 1)
-        min_start_idx = l_t - 1
-
-        if symbol_max_end_idx < min_start_idx:
-            continue
-
-        for end_idx in range(min_start_idx, symbol_max_end_idx + 1):
-            start_idx = end_idx - l_t + 1
-            candidates.append({
-                'symbol': symbol,
-                'entity_id': entity_id,
-                'start_idx': start_idx,
-                'end_idx': end_idx
-            })
+        candidates.append({
+            'symbol': symbol,
+            'entity_id': entity_id,
+            'start_idx': aligned_start_idx,
+            'end_idx': aligned_end_idx
+        })
 
     if len(candidates) < C:
         raise ValueError(f"Not enough causal candidates ({len(candidates)}) for C={C}")

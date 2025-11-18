@@ -206,12 +206,12 @@ class TestTimeEquivalentMethod:
             dates=sample_features['dates'],
             symbols=sample_features['symbols'],
             target_date=target_date,
-            C=10,
+            C=5,
             l_t=l_t,
             seed=42
         )
 
-        assert batch.C == 10
+        assert batch.C == 5
         assert batch.max_length == l_t  # Same length as target
 
         # All sequences should be l_t days
@@ -238,6 +238,68 @@ class TestTimeEquivalentMethod:
         lengths = [seq.length for seq in batch.sequences]
         assert len(set(lengths)) == 1  # All same length
         assert lengths[0] == l_t
+
+        # Verify identical calendar span as the target window
+        dates = sample_features['dates']
+        target_idx = dates.get_loc(target_date)
+        expected_start = dates[target_idx - l_t]
+        expected_end = dates[target_idx - 1]
+
+        for seq in batch.sequences:
+            assert seq.start_date == expected_start
+            assert seq.end_date == expected_end
+
+    def test_raises_when_c_exceeds_aligned_symbols(self, sample_features):
+        """Requesting more contexts than aligned symbols should fail."""
+        target_date = pd.Timestamp('2020-04-01')
+
+        with pytest.raises(ValueError, match="Not enough causal candidates"):
+            sample_time_equivalent(
+                features=sample_features['features'],
+                dates=sample_features['dates'],
+                symbols=sample_features['symbols'],
+                target_date=target_date,
+                C=6,
+                l_t=63,
+                seed=1
+            )
+
+    def test_excludes_symbols_without_aligned_window(self, sample_features):
+        """Symbols missing the target window must be ignored."""
+        target_date = pd.Timestamp('2020-04-01')
+        l_t = 30
+
+        # Remove the most recent 11 days from ASSET0 so it lacks the aligned window
+        sample_features['features']['ASSET0'] = sample_features['features']['ASSET0'][:-11]
+
+        batch = sample_time_equivalent(
+            features=sample_features['features'],
+            dates=sample_features['dates'],
+            symbols=sample_features['symbols'],
+            target_date=target_date,
+            C=4,
+            l_t=l_t,
+            seed=0
+        )
+
+        symbols = sample_features['symbols']
+        for seq in batch.sequences:
+            assert symbols[seq.entity_id.item()] != 'ASSET0'
+
+    def test_raises_when_target_window_not_available(self, sample_features):
+        """Raise when the target window is longer than available history."""
+        target_date = pd.Timestamp('2020-01-15')
+
+        with pytest.raises(ValueError, match="sufficient history"):
+            sample_time_equivalent(
+                features=sample_features['features'],
+                dates=sample_features['dates'],
+                symbols=sample_features['symbols'],
+                target_date=target_date,
+                C=2,
+                l_t=40,
+                seed=1
+            )
 
 
 class TestCPDSegmentedMethod:

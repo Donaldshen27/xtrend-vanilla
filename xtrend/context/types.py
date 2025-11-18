@@ -15,8 +15,8 @@ class ContextSequence:
     Attributes:
         features: Input features (seq_len, input_dim)
         entity_id: Entity/asset ID for this sequence
-        start_date: Start date of sequence (timezone-aware)
-        end_date: End date of sequence (timezone-aware)
+        start_date: Start date of sequence (preserves input timezone)
+        end_date: End date of sequence (preserves input timezone)
         method: Construction method used
         padding_mask: Optional mask for padded positions (True = valid, False = padding)
     """
@@ -28,13 +28,12 @@ class ContextSequence:
     padding_mask: Optional[torch.Tensor] = None
 
     def __post_init__(self):
-        """Validate and create default padding mask."""
-        # Ensure timestamps are timezone-aware (UTC)
-        if self.start_date.tz is None:
-            self.start_date = self.start_date.tz_localize('UTC')
-        if self.end_date.tz is None:
-            self.end_date = self.end_date.tz_localize('UTC')
+        """Validate and create default padding mask.
 
+        Note: Preserves timezone of input timestamps (tz-naive or tz-aware).
+        This ensures compatibility with user's input data - if they provide
+        tz-naive dates, they get tz-naive dates back for comparisons.
+        """
         # Create default padding mask if not provided (all valid)
         if self.padding_mask is None:
             self.padding_mask = torch.ones(self.features.shape[0], dtype=torch.bool)
@@ -66,13 +65,19 @@ class ContextSequence:
         Returns:
             True if context ends before target starts with buffer
         """
-        # Ensure target is timezone-aware
-        if target_start_date.tz is None:
-            target_start_date = target_start_date.tz_localize('UTC')
+        # Normalize timezones for comparison (without modifying stored values)
+        end_date_cmp = self.end_date
+        target_cmp = target_start_date
+
+        # If one is tz-naive and other is tz-aware, make both tz-naive for comparison
+        if end_date_cmp.tz is None and target_cmp.tz is not None:
+            target_cmp = target_cmp.tz_localize(None)
+        elif end_date_cmp.tz is not None and target_cmp.tz is None:
+            end_date_cmp = end_date_cmp.tz_localize(None)
 
         # Context must end at least buffer_days before target starts
         buffer = pd.Timedelta(days=buffer_days)
-        return self.end_date + buffer <= target_start_date
+        return end_date_cmp + buffer <= target_cmp
 
 
 @dataclass

@@ -138,22 +138,31 @@ class TestContextBatch:
         assert seq.padding_mask[:15].all()
         assert not seq.padding_mask[15:].any()
 
-    def test_timezone_conversion(self):
-        """Test automatic timezone conversion to UTC."""
-        # Create sequence with naive (no timezone) timestamps
-        seq = ContextSequence(
+    def test_timezone_preservation(self):
+        """Test that timezone is preserved from input."""
+        # Test with tz-naive timestamps (should remain tz-naive)
+        seq_naive = ContextSequence(
             features=torch.randn(21, 8),
             entity_id=torch.tensor(5),
             start_date=pd.Timestamp('2020-01-01'),  # naive
             end_date=pd.Timestamp('2020-01-25'),    # naive
             method="final_hidden_state"
         )
+        assert seq_naive.start_date.tz is None
+        assert seq_naive.end_date.tz is None
 
-        # Verify timestamps are now timezone-aware (UTC)
-        assert seq.start_date.tz is not None
-        assert seq.end_date.tz is not None
-        assert str(seq.start_date.tz) == 'UTC'
-        assert str(seq.end_date.tz) == 'UTC'
+        # Test with tz-aware timestamps (should remain tz-aware)
+        seq_aware = ContextSequence(
+            features=torch.randn(21, 8),
+            entity_id=torch.tensor(5),
+            start_date=pd.Timestamp('2020-01-01', tz='UTC'),  # aware
+            end_date=pd.Timestamp('2020-01-25', tz='UTC'),    # aware
+            method="final_hidden_state"
+        )
+        assert seq_aware.start_date.tz is not None
+        assert seq_aware.end_date.tz is not None
+        assert str(seq_aware.start_date.tz) == 'UTC'
+        assert str(seq_aware.end_date.tz) == 'UTC'
 
     def test_buffer_days_parameter(self):
         """Test buffer_days parameter in causality check."""

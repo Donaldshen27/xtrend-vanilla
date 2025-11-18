@@ -38,6 +38,9 @@ When reviewing completed work, you will:
    - When you identify plan deviations, explain whether they're problematic or beneficial
    - Suggest specific improvements with code examples when helpful
 
+6. **Codex Review Second Opinion**:
+   - Use codex-review SKILL to run full review to assist you for second opinion
+
 6. **Communication Protocol**:
    - If you find significant deviations from the plan, ask the coding agent to review and confirm the changes
    - If you identify issues with the original plan itself, recommend plan updates

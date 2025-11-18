@@ -4,7 +4,7 @@ import torch
 import pandas as pd
 import numpy as np
 
-from xtrend.context.sampler import sample_final_hidden_state
+from xtrend.context.sampler import sample_final_hidden_state, sample_time_equivalent
 from xtrend.context.types import ContextBatch
 
 
@@ -175,3 +175,65 @@ class TestFinalHiddenStateMethod:
                 l_c=10,
                 seed=42
             )
+
+
+class TestTimeEquivalentMethod:
+    """Test Time-Equivalent sampling method."""
+
+    @pytest.fixture
+    def sample_features(self):
+        """Create sample feature panel."""
+        dates = pd.date_range('2020-01-01', '2020-04-10', freq='D')
+        features = {}
+        np.random.seed(42)
+        for asset_id in range(5):
+            features[f"ASSET{asset_id}"] = torch.randn(len(dates), 8)
+
+        return {
+            'features': features,
+            'dates': dates,
+            'symbols': [f"ASSET{i}" for i in range(5)]
+        }
+
+    def test_sample_time_equivalent_matches_target_length(self, sample_features):
+        """Time-equivalent sequences match target length."""
+        target_date = pd.Timestamp('2020-04-01')
+        l_t = 63  # Target sequence length
+
+        batch = sample_time_equivalent(
+            features=sample_features['features'],
+            dates=sample_features['dates'],
+            symbols=sample_features['symbols'],
+            target_date=target_date,
+            C=10,
+            l_t=l_t,
+            seed=42
+        )
+
+        assert batch.C == 10
+        assert batch.max_length == l_t  # Same length as target
+
+        # All sequences should be l_t days
+        for seq in batch.sequences:
+            assert seq.length == l_t
+            assert seq.method == "time_equivalent"
+
+    def test_time_alignment(self, sample_features):
+        """k-th timestep aligned across contexts."""
+        target_date = pd.Timestamp('2020-03-01')
+        l_t = 21
+
+        batch = sample_time_equivalent(
+            features=sample_features['features'],
+            dates=sample_features['dates'],
+            symbols=sample_features['symbols'],
+            target_date=target_date,
+            C=5,
+            l_t=l_t,
+            seed=42
+        )
+
+        # All sequences must be same length (time-aligned)
+        lengths = [seq.length for seq in batch.sequences]
+        assert len(set(lengths)) == 1  # All same length
+        assert lengths[0] == l_t

@@ -154,9 +154,20 @@ class ContextBatch:
         max_len = self.max_length
         input_dim = self.input_dim
 
-        # Preallocate tensors
-        features = torch.zeros(C, max_len, input_dim)
-        mask = torch.zeros(C, max_len, dtype=torch.bool)
+        # Preallocate tensors on same device/dtype as incoming sequences
+        template_features = self.sequences[0].features
+        template_mask = self.sequences[0].padding_mask
+
+        features = torch.zeros(
+            (C, max_len, input_dim),
+            dtype=template_features.dtype,
+            device=template_features.device,
+        )
+        mask = torch.zeros(
+            (C, max_len),
+            dtype=template_mask.dtype,
+            device=template_mask.device,
+        )
 
         # Fill with sequences
         for i, seq in enumerate(self.sequences):

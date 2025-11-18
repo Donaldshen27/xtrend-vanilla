@@ -8,6 +8,26 @@ from xtrend.context.types import ContextSequence, ContextBatch
 from xtrend.cpd import RegimeSegments
 
 
+def _normalize_target_timestamp(
+    dates: pd.DatetimeIndex, target_date: pd.Timestamp
+) -> pd.Timestamp:
+    """Align target_date timezone to match dates index for lookups."""
+    if dates.tz is None:
+        # DatetimeIndex is tz-naive, so remove timezone info from target
+        return target_date if target_date.tz is None else target_date.tz_localize(None)
+
+    # DatetimeIndex is tz-aware
+    if target_date.tz is None:
+        return target_date.tz_localize(dates.tz)
+
+    # Both are tz-aware; convert to index timezone if needed
+    return (
+        target_date
+        if target_date.tz == dates.tz
+        else target_date.tz_convert(dates.tz)
+    )
+
+
 def sample_final_hidden_state(
     features: Dict[str, torch.Tensor],
     dates: pd.DatetimeIndex,
@@ -45,30 +65,30 @@ def sample_final_hidden_state(
         raise ValueError("No symbols available after exclusions")
 
     # Normalize target_date to match dates timezone
-    if dates.tz is None and target_date.tz is not None:
-        # dates is tz-naive, convert target_date to tz-naive
-        target_date_normalized = target_date.tz_localize(None)
-    elif dates.tz is not None and target_date.tz is None:
-        # dates is tz-aware, convert target_date to tz-aware
-        target_date_normalized = target_date.tz_localize(dates.tz)
-    else:
-        target_date_normalized = target_date
+    target_timestamp = _normalize_target_timestamp(dates, target_date)
 
     # Find target date index
-    target_idx = dates.get_loc(target_date_normalized)
+    target_idx = dates.get_loc(target_timestamp)
 
     # Build candidate sequences (all possible sequences before target)
     candidates = []
     for symbol in available_symbols:
         entity_id = symbols.index(symbol)  # Map symbol to entity ID
         feature_tensor = features[symbol]
+        available_len = feature_tensor.shape[0]
+
+        if available_len < l_c:
+            continue  # Not enough history for even one window
 
         # Sample all valid windows ending before target
         # Valid window: [start_idx, end_idx] where end_idx < target_idx
-        max_end_idx = target_idx - 1
+        symbol_max_end_idx = min(target_idx - 1, available_len - 1)
         min_start_idx = l_c - 1  # Need at least l_c days
 
-        for end_idx in range(min_start_idx, max_end_idx + 1):
+        if symbol_max_end_idx < min_start_idx:
+            continue  # Target date is before symbol accrued enough history
+
+        for end_idx in range(min_start_idx, symbol_max_end_idx + 1):
             start_idx = end_idx - l_c + 1
             candidates.append({
                 'symbol': symbol,
@@ -139,29 +159,29 @@ def sample_time_equivalent(
         raise ValueError("No symbols available after exclusions")
 
     # Normalize target_date to match dates timezone
-    if dates.tz is None and target_date.tz is not None:
-        # dates is tz-naive, convert target_date to tz-naive
-        target_date_normalized = target_date.tz_localize(None)
-    elif dates.tz is not None and target_date.tz is None:
-        # dates is tz-aware, convert target_date to tz-aware
-        target_date_normalized = target_date.tz_localize(dates.tz)
-    else:
-        target_date_normalized = target_date
+    target_timestamp = _normalize_target_timestamp(dates, target_date)
 
     # Find target date index
-    target_idx = dates.get_loc(target_date_normalized)
+    target_idx = dates.get_loc(target_timestamp)
 
     # Build candidate sequences
     candidates = []
     for symbol in available_symbols:
         entity_id = symbols.index(symbol)
         feature_tensor = features[symbol]
+        available_len = feature_tensor.shape[0]
+
+        if available_len < l_t:
+            continue
 
         # Valid windows of length l_t ending before target
-        max_end_idx = target_idx - 1
+        symbol_max_end_idx = min(target_idx - 1, available_len - 1)
         min_start_idx = l_t - 1
 
-        for end_idx in range(min_start_idx, max_end_idx + 1):
+        if symbol_max_end_idx < min_start_idx:
+            continue
+
+        for end_idx in range(min_start_idx, symbol_max_end_idx + 1):
             start_idx = end_idx - l_t + 1
             candidates.append({
                 'symbol': symbol,
@@ -235,14 +255,7 @@ def sample_cpd_segmented(
         raise ValueError("No symbols available after exclusions")
 
     # Normalize target_date to match dates timezone
-    if dates.tz is None and target_date.tz is not None:
-        # dates is tz-naive, convert target_date to tz-naive
-        target_timestamp = target_date.tz_localize(None)
-    elif dates.tz is not None and target_date.tz is None:
-        # dates is tz-aware, convert target_date to tz-aware
-        target_timestamp = target_date.tz_localize(dates.tz)
-    else:
-        target_timestamp = target_date
+    target_timestamp = _normalize_target_timestamp(dates, target_date)
 
     # Find target date index
     target_idx = dates.get_loc(target_timestamp)

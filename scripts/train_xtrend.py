@@ -628,8 +628,9 @@ def main():
                        help='Hidden dimension')
     parser.add_argument('--num-heads', type=int, default=4,
                        help='Number of attention heads')
-    parser.add_argument('--dropout', type=float, default=0.1,
-                       help='Dropout rate')
+    # x-trend-architecture skill recommends 0.3-0.5 for regularization
+    parser.add_argument('--dropout', type=float, default=0.3,
+                       help='Dropout rate (paper default: 0.3)')
     parser.add_argument('--target-len', type=int, default=126,
                        help='Target sequence length (days)')
     parser.add_argument('--context-size', type=int, default=20,

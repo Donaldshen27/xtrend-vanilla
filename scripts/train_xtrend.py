@@ -2,6 +2,13 @@
 """
 Training script for X-Trend models on Bloomberg futures data.
 
+This implementation follows the X-Trend paper specification:
+- Input features: 5 volatility-normalized returns + 3 MACD indicators
+- Return timescales: [1, 21, 63, 126, 252] days
+- MACD pairs: [(8,24), (16,28), (32,96)]
+- Volatility: EWMA with span=60
+- Normalization: r_hat = r / (σ_t * sqrt(t'))
+
 Usage:
     # Train XTrendQ (best performance from paper)
     uv run python scripts/train_xtrend.py --model xtrendq
@@ -14,6 +21,9 @@ Usage:
 
     # Resume from checkpoint
     uv run python scripts/train_xtrend.py --model xtrendq --resume checkpoints/xtrend_q_epoch_10.pt
+
+    # Adjust hyperparameters (defaults now match paper)
+    uv run python scripts/train_xtrend.py --model xtrendq --dropout 0.3 --lr 1e-4
 """
 
 import argparse

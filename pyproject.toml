@@ -26,6 +26,9 @@ dependencies = [
     # GP Change-Point Detection
     "torch>=2.0.0",
     "gpytorch>=1.11",
+
+    # Progress bars
+    "tqdm>=4.66.0",
 ]
 
 [build-system]
@@ -40,3 +43,13 @@ dev-dependencies = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
 ]
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu121" }
+torchvision = { index = "pytorch-cu121" }
+torchaudio = { index = "pytorch-cu121" }

@@ -60,7 +60,7 @@ from xtrend.context import (
 )
 from xtrend.data.sources import BloombergParquetSource
 from xtrend.data.features import compute_xtrend_features
-from xtrend.cpd import CPDConfig, GPCPDSegmenter
+from xtrend.cpd import CPDConfig, GPCPDSegmenter, RegimeSegment, RegimeSegments
 
 
 class XTrendDataset(Dataset):
@@ -115,6 +115,10 @@ class XTrendDataset(Dataset):
         self.cpd_cache_dir = Path(cpd_cache_dir).expanduser() if cpd_cache_dir else None
         if self.cpd_cache_dir:
             self.cpd_cache_dir.mkdir(parents=True, exist_ok=True)
+        # Track whether we've already reported falling back to alternate cache names
+        self._cache_fallback_notice = False
+        # Pre-compute date -> index map for reindexing cached regimes
+        self._date_to_idx = {pd.Timestamp(date): idx for idx, date in enumerate(self.dates)}
 
         # Precompute features and returns for all symbols
         print("Precomputing Phase 1 features and returns...")
@@ -125,10 +129,12 @@ class XTrendDataset(Dataset):
         self.input_dim = None
 
         for symbol in tqdm(symbols, desc="Processing symbols"):
-            price_series = self._prepare_price_series(prices[symbol])
-            if price_series.isna().all():
+            raw_series = prices[symbol]
+            if raw_series.isna().all():
                 continue
 
+            price_series = self._prepare_price_series(raw_series)
+            
             # Compute features (8 features as per paper)
             self.features[symbol] = self._compute_features(price_series)
             feature_tensor = torch.tensor(
@@ -165,15 +171,35 @@ class XTrendDataset(Dataset):
             print("Running GP-CPD segmentation for regime-aware context sampling...")
             segmenter = GPCPDSegmenter(self.cpd_config)
             for symbol in tqdm(symbols, desc="Segmenting regimes"):
-                price_series = self._prepare_price_series(prices[symbol])
-                if price_series.isna().all():
+                raw_series = prices[symbol]
+                if raw_series.isna().all():
                     continue
+
+                price_series = self._prepare_price_series(raw_series)
                 cache_path = self._regime_cache_path(symbol)
-                if cache_path and cache_path.exists():
-                    cached = self._load_cached_regimes(cache_path)
-                    if cached is not None:
-                        self.regimes[symbol] = cached
-                        continue
+                cache_candidates = []
+                if cache_path:
+                    cache_candidates.append(cache_path)
+                alternate_cache = self._find_alternate_cache(symbol, cache_path)
+                if alternate_cache:
+                    cache_candidates.append(alternate_cache)
+
+                cached_payload = None
+                for candidate in cache_candidates:
+                    if candidate and candidate.exists():
+                        cached_payload = self._load_cached_regimes(candidate)
+                        if cached_payload is not None:
+                            if cache_path and candidate != cache_path and not self._cache_fallback_notice:
+                                warnings.warn(
+                                    "CPD cache file span does not match dataset window. "
+                                    f"Using alternate cache '{candidate.name}' for symbol {symbol}."
+                                )
+                                self._cache_fallback_notice = True
+                            break
+
+                if cached_payload is not None:
+                    self.regimes[symbol] = cached_payload
+                    continue
                 try:
                     self.regimes[symbol] = segmenter.fit_segment(price_series)
                     if cache_path:
@@ -197,9 +223,15 @@ class XTrendDataset(Dataset):
 
     def _prepare_price_series(self, series: pd.Series) -> pd.Series:
         """Align prices to global index and fill missing values causally."""
+        # Treat 0.0 as missing data (prevents division by zero in features)
+        series = series.replace(0.0, float('nan'))
+        
         aligned = series.reindex(self.prices.index)
         aligned = aligned.ffill().bfill()
-        return aligned.fillna(0.0)
+        
+        # If any NaNs remain (e.g. all NaNs), fill with small epsilon instead of 0
+        # to avoid division by zero, though these should be filtered out upstream
+        return aligned.fillna(1e-8)
 
     def _compute_features(self, prices: pd.Series) -> pd.DataFrame:
         """Compute 8 features for a price series (matching paper)."""
@@ -242,12 +274,32 @@ class XTrendDataset(Dataset):
         filename = f"{symbol}_{token}.pkl"
         return self.cpd_cache_dir / filename
 
+    def _find_alternate_cache(self, symbol: str, primary: Optional[Path]) -> Optional[Path]:
+        """Locate an existing cache file that matches hyperparams but not span."""
+        if not self.cpd_cache_dir:
+            return None
+        cfg = self.cpd_config
+        pattern = (
+            f"{symbol}_*_lb{cfg.lookback}_"
+            f"th{cfg.threshold:.2f}_"
+            f"min{cfg.min_length}_max{cfg.max_length}.pkl"
+        )
+        matches = sorted(self.cpd_cache_dir.glob(pattern))
+        for candidate in matches:
+            if primary and candidate.resolve() == primary.resolve():
+                continue
+            return candidate
+        return None
+
     def _load_cached_regimes(self, path: Path):
         """Load cached regimes for a symbol."""
         try:
             with path.open("rb") as fh:
                 payload = pickle.load(fh)
-            return payload.get("segments")
+            segments = payload.get("segments")
+            if not segments:
+                return None
+            return self._align_cached_segments(segments)
         except Exception as exc:
             warnings.warn(f"Failed to load CPD cache {path}: {exc}")
             return None
@@ -259,6 +311,39 @@ class XTrendDataset(Dataset):
                 pickle.dump({"segments": segments}, fh)
         except Exception as exc:
             warnings.warn(f"Failed to save CPD cache {path}: {exc}")
+
+    def _align_cached_segments(self, segments: RegimeSegments) -> Optional[RegimeSegments]:
+        """Clip cached regime indices to the dataset's calendar."""
+        dataset_start = self.dates[0]
+        dataset_end = self.dates[-1]
+        aligned = []
+
+        for seg in segments.segments:
+            if seg.end_date < dataset_start or seg.start_date > dataset_end:
+                continue
+
+            start_date = max(seg.start_date, dataset_start)
+            end_date = min(seg.end_date, dataset_end)
+
+            start_idx = self._date_to_idx.get(start_date)
+            end_idx = self._date_to_idx.get(end_date)
+            if start_idx is None or end_idx is None or start_idx > end_idx:
+                continue
+
+            aligned.append(
+                RegimeSegment(
+                    start_idx=start_idx,
+                    end_idx=end_idx,
+                    severity=seg.severity,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+            )
+
+        if not aligned:
+            return None
+
+        return RegimeSegments(segments=aligned, config=segments.config)
 
     def __len__(self):
         return len(self.samples)
@@ -683,11 +768,11 @@ def main():
     print(f"Found {len(symbols)} symbols: {symbols[:10]}...")
 
     # Load prices
-    prices = source.load_prices(symbols, start='2000-01-01', end='2023-12-31')
+    prices = source.load_prices(symbols, start='2018-01-01', end='2023-12-31')
     print(f"Loaded prices: {prices.shape}")
 
     # Train/val split (time-based)
-    train_cutoff = '2020-12-31'
+    train_cutoff = '2021-12-31'
     train_prices = prices.loc[:train_cutoff]
     val_prices = prices.loc[train_cutoff:]
 

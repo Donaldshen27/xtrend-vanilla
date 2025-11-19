@@ -21,6 +21,9 @@ env/
 *.swo
 *~
 
+# Claude Code
+.claude/
+
 # Jupyter
 .ipynb_checkpoints/
 *.ipynb

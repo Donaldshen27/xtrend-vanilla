@@ -1,4 +1,7 @@
 """Streamlit tab for Phase 2: Regime Detection & Validation."""
+import pickle
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -49,6 +52,49 @@ def run_cpd_cached(asset: str, start_date, end_date,
     return segments, prices, config
 
 
+def parse_cache_filename(filename: str):
+    """Parse cache filename metadata produced by training script."""
+    stem = filename.replace(".pkl", "")
+    parts = stem.split("_")
+    if len(parts) < 8:
+        raise ValueError(f"Unrecognized cache filename format: {filename}")
+    symbol = parts[0]
+    start = pd.Timestamp(parts[1])
+    end = pd.Timestamp(parts[2])
+    try:
+        series_len = int(parts[3])
+    except ValueError as exc:
+        raise ValueError(f"Invalid series length in filename {filename}") from exc
+    lookback = int(parts[4].replace("lb", ""))
+    threshold = float(parts[5].replace("th", ""))
+    min_len = int(parts[6].replace("min", ""))
+    max_len = int(parts[7].replace("max", ""))
+    return {
+        "symbol": symbol,
+        "start": start,
+        "end": end,
+        "series_len": series_len,
+        "lookback": lookback,
+        "threshold": threshold,
+        "min_length": min_len,
+        "max_length": max_len,
+    }
+
+
+def load_cached_segments(cache_dir: Path, filename: str):
+    """Load RegimeSegments from on-disk cache file."""
+    meta = parse_cache_filename(filename)
+    path = cache_dir / filename
+    if not path.exists():
+        raise FileNotFoundError(f"Cache file not found: {path}")
+    with path.open("rb") as fh:
+        payload = pickle.load(fh)
+    segments = payload.get("segments")
+    if segments is None:
+        raise ValueError(f"Cache file missing 'segments' key: {path}")
+    return segments, meta
+
+
 def render_regimes_tab(data_source):
     """Render the Regimes tab with GP-CPD analysis.
 
@@ -64,6 +110,28 @@ def render_regimes_tab(data_source):
         threshold = st.slider("Severity threshold", 0.5, 0.99, 0.9, 0.01)
         min_length = st.slider("Min regime length", 3, 10, 5)
         max_length = st.slider("Max regime length", 21, 126, 21)
+        cache_dir = st.text_input(
+            "CPD cache directory",
+            value="data/bloomberg/cpd_cache"
+        )
+        use_cache = st.checkbox("Load cached regime file", value=False)
+        selected_cache = None
+        available_cache_files = []
+        if use_cache:
+            cache_path = Path(cache_dir)
+            if cache_path.exists():
+                available_cache_files = sorted(
+                    [p.name for p in cache_path.glob("*.pkl")]
+                )
+                if available_cache_files:
+                    selected_cache = st.selectbox(
+                        "Select cached file",
+                        available_cache_files
+                    )
+                else:
+                    st.info("No cache files found in directory.")
+            else:
+                st.warning(f"Cache directory does not exist: {cache_dir}")
 
     # Asset selection
     selected_asset = st.selectbox(
@@ -96,9 +164,41 @@ def render_regimes_tab(data_source):
 
     # Run CPD button
     run_button = st.button("🔍 Detect Regimes", type="primary")
+    load_cache_button = st.button(
+        "📂 Load Cached Regimes",
+        disabled=not (use_cache and selected_cache)
+    )
 
     # Execute if button clicked
-    if run_button:
+    if load_cache_button and selected_cache:
+        cache_path = Path(cache_dir)
+        try:
+            segments, meta = load_cached_segments(cache_path, selected_cache)
+            prices_df = data_source.load_prices(
+                [meta["symbol"]],
+                start=meta["start"],
+                end=meta["end"]
+            )
+            prices = prices_df[meta["symbol"]]
+
+            st.session_state['current_results'] = {
+                'segments': segments,
+                'prices': prices,
+                'asset': meta["symbol"],
+                'cache_meta': meta
+            }
+            st.session_state['last_run_params'] = {
+                'asset': meta["symbol"],
+                'start': meta["start"],
+                'end': meta["end"],
+                'lookback': meta["lookback"],
+                'threshold': meta["threshold"]
+            }
+            st.success(f"Loaded cached regimes for {meta['symbol']} ({selected_cache})")
+        except Exception as exc:
+            st.error(f"Failed to load cache: {exc}")
+
+    elif run_button:
         with st.status("Running GP-CPD...", state="running") as status:
             try:
                 status.update(label="Loading price data...", state="running")

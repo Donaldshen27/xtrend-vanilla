@@ -37,6 +37,7 @@ env/
 *.ckpt
 checkpoints/
 lightning_logs/
+data/bloomberg/cpd_cache/
 
 # Temporary files
 *.tmp

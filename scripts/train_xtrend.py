@@ -59,7 +59,6 @@ from xtrend.context import (
     sample_time_equivalent,
 )
 from xtrend.data.sources import BloombergParquetSource
-from xtrend.data.returns_vol import normalized_returns
 from xtrend.data.features import compute_xtrend_features
 from xtrend.cpd import CPDConfig, GPCPDSegmenter
 
@@ -71,7 +70,7 @@ class XTrendDataset(Dataset):
     Creates sequences of:
     - Target features (8 features × target_len time steps)
     - Context sequences sampled via Phase 4 samplers (cpd_segmented/time-aligned/final-state)
-    - Target returns (for loss computation)
+    - Target returns (for loss computation, EWMA-normalized with span=60)
     """
 
     def __init__(
@@ -138,13 +137,15 @@ class XTrendDataset(Dataset):
             )
             self.feature_tensors[symbol] = feature_tensor
 
-            # Compute normalized returns
-            rets = normalized_returns(
-                price_series.to_frame(),
-                scale=1,
-                vol_window=252
-            )
-            self.returns[symbol] = rets[symbol].fillna(0.0)
+            # Compute normalized returns using EWMA (matching paper spec and input features)
+            # Paper: r_hat = r / σ_t where σ_t uses EWMA with span=60
+            daily_rets = price_series.pct_change()
+            sigma_t = daily_rets.ewm(span=60, min_periods=20).std()
+            # Clip to prevent division by zero
+            sigma_t = sigma_t.clip(lower=1e-8)
+            # Normalize: r_hat = r / σ_t
+            normalized_rets = daily_rets / sigma_t
+            self.returns[symbol] = normalized_rets.fillna(0.0)
             self.return_tensors[symbol] = torch.tensor(
                 self.returns[symbol].values,
                 dtype=torch.float32

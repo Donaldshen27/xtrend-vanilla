@@ -544,11 +544,12 @@ def train_epoch(
 
         # Backward
         loss.backward()
+        # Paper specification: max_norm=10.0 (from x-trend-architecture skill)
         torch.nn.utils.clip_grad_norm_(
             list(encoder.parameters()) +
             list(cross_attn.parameters()) +
             list(model.parameters()),
-            max_norm=1.0
+            max_norm=10.0
         )
         optimizer.step()
 

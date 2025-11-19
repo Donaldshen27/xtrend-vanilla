@@ -247,14 +247,14 @@ class XTrendDataset(Dataset):
             feat = self.feature_tensors[symbol]
             n = len(feat)
 
-            # Need target_len + min_history for features
-            required_len = self.target_len + self.min_history
+            # Need history plus one extra day for the future return at t+1
+            required_len = self.target_len + self.min_history + 1
 
             if n < required_len:
                 continue
 
-            # Create rolling windows
-            for start_idx in range(self.min_history, n - self.target_len + 1):
+            # Create rolling windows ensuring we have a lookahead return
+            for start_idx in range(self.min_history, n - self.target_len):
                 samples.append((symbol, start_idx))
 
         return samples
@@ -360,12 +360,13 @@ class XTrendDataset(Dataset):
         """
         target_symbol, start_idx = self.samples[idx]
 
-        # Get target features and returns
+        # Get target features (information available up to time t)
         target_feat = self.feature_tensors[target_symbol][
             start_idx:start_idx + self.target_len
         ]
+        # Target returns are realized after the decision at time t, so use t+1
         target_ret = self.return_tensors[target_symbol][
-            start_idx:start_idx + self.target_len
+            start_idx + 1:start_idx + self.target_len + 1
         ]
 
         context_batch = self._sample_context_batch(target_symbol, start_idx)

@@ -16,8 +16,8 @@ class CPDConfig:
         min_length: Minimum regime length (trading days)
         max_length: Maximum regime length (trading days)
     """
-    lookback: int = 21
-    threshold: float = 0.9
+    lookback: int = 63  # Increased from 21 for more robust GP fits
+    threshold: float = 0.7  # Tuned for real-market severity distribution
     min_length: int = 5
     max_length: int = 21
 

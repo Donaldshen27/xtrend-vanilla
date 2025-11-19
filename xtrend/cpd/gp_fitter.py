@@ -53,13 +53,21 @@ class GPFitter:
         Returns:
             tuple: (fitted_model, log_marginal_likelihood)
         """
+        # Normalize y to z-scores for numerical stability
+        # GP kernels expect standardized inputs to avoid numerical issues
+        y_mean = y.mean()
+        y_std = y.std()
+        if y_std < 1e-8:
+            y_std = 1.0  # Avoid division by zero for constant sequences
+        y_norm = (y - y_mean) / y_std
+
         # Create stationary kernel (Matérn nu=1.5)
         kernel = gpytorch.kernels.ScaleKernel(
             gpytorch.kernels.MaternKernel(nu=1.5)
         )
         likelihood = gpytorch.likelihoods.GaussianLikelihood()
 
-        model = ExactGPModel(x, y, likelihood, kernel)
+        model = ExactGPModel(x, y_norm, likelihood, kernel)
 
         # Optimize
         model.train()
@@ -74,7 +82,7 @@ class GPFitter:
         for i in range(self.max_iter):
             optimizer.zero_grad()
             output = model(x)
-            loss = -mll(output, y)
+            loss = -mll(output, y_norm)
             loss.backward()
             optimizer.step()
 
@@ -92,7 +100,7 @@ class GPFitter:
         likelihood.eval()
         with torch.no_grad():
             output = model(x)
-            log_mll_value = mll(output, y).item()
+            log_mll_value = mll(output, y_norm).item()
 
         return model, log_mll_value
 
@@ -111,6 +119,14 @@ class GPFitter:
         Returns:
             tuple: (stationary_model, log_marginal_likelihood, detected_changepoint_location)
         """
+        # Normalize y to z-scores for numerical stability
+        # Normalize BEFORE splitting to ensure consistent scaling
+        y_mean = y.mean()
+        y_std = y.std()
+        if y_std < 1e-8:
+            y_std = 1.0  # Avoid division by zero for constant sequences
+        y_norm = (y - y_mean) / y_std
+
         n = len(x)
         min_segment_length = max(5, n // 10)  # At least 5 points or 10% of data
 
@@ -123,18 +139,18 @@ class GPFitter:
         candidates = range(min_segment_length, n - min_segment_length + 1, max(1, n // 30))
 
         for t_cp in candidates:
-            # Split data at candidate change-point
-            x1, y1 = x[:t_cp], y[:t_cp]
-            x2, y2 = x[t_cp:], y[t_cp:]
+            # Split normalized data at candidate change-point
+            x1, y1_norm = x[:t_cp], y_norm[:t_cp]
+            x2, y2_norm = x[t_cp:], y_norm[t_cp:]
 
-            # Fit two separate GPs
+            # Fit two separate GPs on normalized data
             try:
                 # GP for first segment
                 kernel1 = gpytorch.kernels.ScaleKernel(
                     gpytorch.kernels.MaternKernel(nu=1.5)
                 )
                 likelihood1 = gpytorch.likelihoods.GaussianLikelihood()
-                model1 = ExactGPModel(x1, y1, likelihood1, kernel1)
+                model1 = ExactGPModel(x1, y1_norm, likelihood1, kernel1)
 
                 model1.train()
                 likelihood1.train()
@@ -145,7 +161,7 @@ class GPFitter:
                 for _ in range(min(50, self.max_iter)):
                     optimizer1.zero_grad()
                     output1 = model1(x1)
-                    loss1 = -mll1(output1, y1)
+                    loss1 = -mll1(output1, y1_norm)
                     loss1.backward()
                     optimizer1.step()
 
@@ -153,14 +169,14 @@ class GPFitter:
                 likelihood1.eval()
                 with torch.no_grad():
                     output1 = model1(x1)
-                    log_mll1 = mll1(output1, y1).item()
+                    log_mll1 = mll1(output1, y1_norm).item()
 
                 # GP for second segment
                 kernel2 = gpytorch.kernels.ScaleKernel(
                     gpytorch.kernels.MaternKernel(nu=1.5)
                 )
                 likelihood2 = gpytorch.likelihoods.GaussianLikelihood()
-                model2 = ExactGPModel(x2, y2, likelihood2, kernel2)
+                model2 = ExactGPModel(x2, y2_norm, likelihood2, kernel2)
 
                 model2.train()
                 likelihood2.train()
@@ -170,7 +186,7 @@ class GPFitter:
                 for _ in range(min(50, self.max_iter)):
                     optimizer2.zero_grad()
                     output2 = model2(x2)
-                    loss2 = -mll2(output2, y2)
+                    loss2 = -mll2(output2, y2_norm)
                     loss2.backward()
                     optimizer2.step()
 
@@ -178,7 +194,7 @@ class GPFitter:
                 likelihood2.eval()
                 with torch.no_grad():
                     output2 = model2(x2)
-                    log_mll2 = mll2(output2, y2).item()
+                    log_mll2 = mll2(output2, y2_norm).item()
 
                 # Combined log marginal likelihood
                 combined_log_mll = log_mll1 + log_mll2

@@ -50,6 +50,7 @@ from xtrend.context import (
 )
 from xtrend.data.sources import BloombergParquetSource
 from xtrend.data.returns_vol import normalized_returns
+from xtrend.data.features import compute_xtrend_features
 from xtrend.cpd import CPDConfig, GPCPDSegmenter
 
 
@@ -191,27 +192,7 @@ class XTrendDataset(Dataset):
 
     def _compute_features(self, prices: pd.Series) -> pd.DataFrame:
         """Compute 8 features for a price series (matching paper)."""
-        df = pd.DataFrame(index=prices.index)
-
-        # Simple returns at multiple scales
-        for scale in [1, 5, 21]:
-            ret = prices.pct_change(scale)
-            df[f'ret_{scale}d'] = ret
-
-        # MACD-style momentum indicators
-        df['macd_8_24'] = (prices.ewm(span=8).mean() - prices.ewm(span=24).mean()) / prices
-        df['macd_16_48'] = (prices.ewm(span=16).mean() - prices.ewm(span=48).mean()) / prices
-
-        # Volatility proxy
-        df['vol_20d'] = prices.pct_change().rolling(20).std()
-
-        # Price level (normalized)
-        df['price_norm'] = (prices - prices.rolling(252).mean()) / prices.rolling(252).std()
-
-        # Volume placeholder (if you have volume data, add it here)
-        df['volume_proxy'] = 0.0
-
-        return df.fillna(0.0)
+        return compute_xtrend_features(prices)
 
     def _create_samples(self) -> list:
         """Create list of valid (symbol, start_idx) pairs."""

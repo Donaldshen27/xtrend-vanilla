@@ -28,3 +28,4 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest tests/test_smoke.py -v
 # Run with coverage
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest --cov=src --cov-report=term-missing
 ```
+- Parquets are in this folder: data/bloomberg/processed

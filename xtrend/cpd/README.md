@@ -49,3 +49,14 @@ print('batch_generate_cpd_cache loaded:', callable(m.batch_generate_cpd_cache))
 PY
 ```
 
+## Quick train command (0.85 threshold)
+```bash
+uv run python scripts/train_xtrend.py \
+  --model xtrendq \
+  --data-path data/bloomberg/processed \
+  --cpd-cache-dir data/bloomberg/cpd_cache \
+  --cpd-threshold 0.85 \
+  --cpd-lookback 21 --cpd-min-length 5 --cpd-max-length 63 \
+  --train-cutoff 2023-12-29
+```
+Adjust `--train-cutoff` to match the end date of your training cache span; validation starts at that date. Other hyperparameters can be tuned as needed.

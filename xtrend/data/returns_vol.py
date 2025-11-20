@@ -98,6 +98,9 @@ def ewm_volatility(returns: "Any", span: int = 60) -> "Any":
     """
     Ex-ante volatility via exponentially weighted std (pandas .ewm().std()) as used in the paper.
 
+    Returns concurrent volatility (includes current observation).
+    For target normalization, caller should shift if needed.
+
     Args:
         returns: Wide DataFrame of simple returns.
         span: EWMA span in trading days (default 60).

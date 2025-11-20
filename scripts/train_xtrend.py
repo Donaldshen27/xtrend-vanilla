@@ -143,13 +143,23 @@ class XTrendDataset(Dataset):
             )
             self.feature_tensors[symbol] = feature_tensor
 
-            # Compute normalized returns using EWMA (matching paper spec and input features)
+            # Compute normalized target returns using EWMA
             # Paper: r_hat = r / σ_t where σ_t uses EWMA with span=60
             daily_rets = price_series.pct_change()
-            sigma_t = daily_rets.ewm(span=60, min_periods=20).std()
-            # Clip to prevent division by zero
-            sigma_t = sigma_t.clip(lower=1e-8)
-            # Normalize: r_hat = r / σ_t
+
+            # CRITICAL FOR TARGETS: Use lagged volatility to avoid lookahead bias
+            # When predicting position at time t for return r[t+1]:
+            # - We normalize r[t+1] by σ[t] (volatility known at time t)
+            # - Using σ[t+1] would be lookahead (not known when making decision)
+            #
+            # Note: This is DIFFERENT from input features, which use concurrent σ[t]
+            # because features represent the market state AT time t.
+            sigma_t = daily_rets.ewm(span=60, min_periods=20).std().shift(1)
+
+            # Clip to prevent division by zero, backfill first value
+            sigma_t = sigma_t.clip(lower=1e-8).bfill()
+
+            # Normalize: r_hat[t+1] = r[t+1] / σ[t]
             normalized_rets = daily_rets / sigma_t
             self.returns[symbol] = normalized_rets.fillna(0.0)
             self.return_tensors[symbol] = torch.tensor(

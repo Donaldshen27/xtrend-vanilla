@@ -28,6 +28,8 @@ def compute_xtrend_features(prices: pd.Series) -> pd.DataFrame:
 
     # Compute EWMA volatility (span=60 as recommended by x-trend-architecture skill)
     daily_returns = prices.pct_change()
+    # For INPUT FEATURES: Use concurrent volatility (includes current return)
+    # This represents actual information available at time t
     sigma_t = daily_returns.ewm(span=60, min_periods=20).std()
 
     # Clip to prevent division by zero

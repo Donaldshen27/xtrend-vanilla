@@ -9,8 +9,16 @@ This implementation follows the X-Trend paper specification:
 - Volatility: EWMA with span=60
 - Normalization: r_hat = r / (σ_t * sqrt(t'))
 
+Defaults now match paper's best X-Trend-Q configuration (2.70 Sharpe):
+- Data: 1990-2023 (full backtest period)
+- Context size: 10 sequences
+- Context max length: 63 days
+- CPD threshold: 0.95
+- Learning rate: 1e-3
+- Batch size: 64
+
 Usage:
-    # Train XTrendQ (best performance from paper)
+    # Train XTrendQ with paper-optimal defaults (2.70 Sharpe configuration)
     uv run python scripts/train_xtrend.py --model xtrendq
 
     # Train XTrendG
@@ -21,9 +29,6 @@ Usage:
 
     # Resume from checkpoint
     uv run python scripts/train_xtrend.py --model xtrendq --resume checkpoints/xtrend_q_epoch_10.pt
-
-    # Adjust hyperparameters (defaults now match paper)
-    uv run python scripts/train_xtrend.py --model xtrendq --dropout 0.3 --lr 1e-4
 """
 
 import argparse
@@ -232,15 +237,24 @@ class XTrendDataset(Dataset):
         print(f"Created {len(self.samples)} training samples")
 
     def _prepare_price_series(self, series: pd.Series) -> pd.Series:
-        """Align prices to global index and fill missing values causally."""
+        """Align prices to global index and fill missing values causally.
+
+        IMPORTANT: Only forward-fills (ffill) to handle missing days within
+        the asset's trading history. Does NOT backfill to avoid creating
+        artificial flat price histories before the asset existed.
+
+        _create_samples() now handles filtering out pre-listing samples.
+        """
         # Treat 0.0 as missing data (prevents division by zero in features)
         series = series.replace(0.0, float('nan'))
-        
+
         aligned = series.reindex(self.prices.index)
-        aligned = aligned.ffill().bfill()
-        
-        # If any NaNs remain (e.g. all NaNs), fill with small epsilon instead of 0
-        # to avoid division by zero, though these should be filtered out upstream
+        # Only forward-fill (causal) - do NOT backfill (creates fake history)
+        aligned = aligned.ffill()
+
+        # If any NaNs remain at the start (before asset listing), leave them as NaN
+        # _create_samples will skip those indices when creating training samples
+        # For any other NaNs (shouldn't happen), fill with small epsilon
         return aligned.fillna(1e-8)
 
     def _compute_features(self, prices: pd.Series) -> pd.DataFrame:
@@ -248,12 +262,36 @@ class XTrendDataset(Dataset):
         return compute_xtrend_features(prices)
 
     def _create_samples(self) -> list:
-        """Create list of valid (symbol, start_idx) pairs."""
+        """Create list of valid (symbol, start_idx) pairs.
+
+        Only creates samples where the asset has REAL historical data,
+        not backfilled synthetic data. This prevents training on artificial
+        flat price histories for assets that didn't exist in early periods.
+        """
         samples = []
+        skipped_assets = []
+        late_start_assets = []
 
         for symbol in self.symbols:
             if symbol not in self.feature_tensors:
                 continue
+
+            # Get the actual raw series to find first valid (non-NaN) price
+            raw_series = self.prices[symbol]
+            first_valid_idx = raw_series.first_valid_index()
+
+            if first_valid_idx is None:
+                # Asset has no valid data at all, skip
+                skipped_assets.append(symbol)
+                continue
+
+            # Convert timestamp to integer index in the global date array
+            start_offset = self.dates.get_loc(first_valid_idx)
+
+            # Only start sampling after asset exists AND has min_history warmup
+            # This ensures we have real data for feature calculation
+            real_start_idx = start_offset + self.min_history
+
             feat = self.feature_tensors[symbol]
             n = len(feat)
 
@@ -261,11 +299,38 @@ class XTrendDataset(Dataset):
             required_len = self.target_len + self.min_history + 1
 
             if n < required_len:
+                skipped_assets.append(symbol)
                 continue
 
-            # Create rolling windows ensuring we have a lookahead return
-            for start_idx in range(self.min_history, n - self.target_len):
+            # Ensure we don't go beyond the valid range
+            if real_start_idx >= n - self.target_len:
+                # Asset doesn't have enough real history after it started
+                skipped_assets.append(symbol)
+                continue
+
+            # Track assets that started after dataset start (late listings)
+            if start_offset > self.min_history:
+                years_late = (first_valid_idx - self.dates[0]).days / 365.25
+                late_start_assets.append((symbol, first_valid_idx, years_late))
+
+            # Create rolling windows from real data only
+            for start_idx in range(real_start_idx, n - self.target_len):
                 samples.append((symbol, start_idx))
+
+        # Print diagnostic info
+        if skipped_assets:
+            warnings.warn(
+                f"Skipped {len(skipped_assets)} assets with insufficient real data: "
+                f"{skipped_assets[:5]}{'...' if len(skipped_assets) > 5 else ''}"
+            )
+        if late_start_assets:
+            print(f"\nℹ️  Found {len(late_start_assets)} assets with late start dates:")
+            for sym, start_date, years in sorted(late_start_assets, key=lambda x: x[2], reverse=True)[:10]:
+                print(f"  {sym}: started {start_date.strftime('%Y-%m-%d')} "
+                      f"(+{years:.1f} years after dataset start)")
+            if len(late_start_assets) > 10:
+                print(f"  ... and {len(late_start_assets) - 10} more")
+            print(f"  → Training samples for these assets exclude backfilled synthetic history\n")
 
         return samples
 
@@ -727,10 +792,10 @@ def main():
                        help='Path to Bloomberg parquet files')
     parser.add_argument('--epochs', type=int, default=50,
                        help='Number of training epochs')
-    parser.add_argument('--batch-size', type=int, default=32,
-                       help='Batch size')
-    parser.add_argument('--lr', type=float, default=1e-4,
-                       help='Learning rate')
+    parser.add_argument('--batch-size', type=int, default=64,
+                       help='Batch size (paper: 64 or 128)')
+    parser.add_argument('--lr', type=float, default=1e-3,
+                       help='Learning rate (paper: 1e-3)')
     parser.add_argument('--hidden-dim', type=int, default=128,
                        help='Hidden dimension')
     parser.add_argument('--num-heads', type=int, default=4,
@@ -740,8 +805,8 @@ def main():
                        help='Dropout rate (paper default: 0.3)')
     parser.add_argument('--target-len', type=int, default=126,
                        help='Target sequence length (days)')
-    parser.add_argument('--context-size', type=int, default=20,
-                       help='Number of context sequences per target')
+    parser.add_argument('--context-size', type=int, default=10,
+                       help='Number of context sequences per target (paper best: 10)')
     parser.add_argument('--context-method', type=str, default='cpd_segmented',
                        choices=['cpd_segmented', 'time_equivalent', 'final_hidden_state'],
                        help='Primary Phase 4 context sampler')
@@ -751,12 +816,12 @@ def main():
                        help='Minimum history (days) before sampling targets')
     parser.add_argument('--cpd-lookback', type=int, default=21,
                        help='GP-CPD lookback window (days)')
-    parser.add_argument('--cpd-threshold', type=float, default=0.9,
-                       help='GP-CPD severity threshold for change-points')
+    parser.add_argument('--cpd-threshold', type=float, default=0.95,
+                       help='GP-CPD severity threshold for change-points (paper: 0.95 for lmax=63)')
     parser.add_argument('--cpd-min-length', type=int, default=5,
                        help='Minimum GP-CPD regime length (days)')
-    parser.add_argument('--cpd-max-length', type=int, default=21,
-                       help='Maximum GP-CPD regime length (days)')
+    parser.add_argument('--cpd-max-length', type=int, default=63,
+                       help='Maximum GP-CPD regime length (days) (paper best: 63)')
     parser.add_argument('--context-seed', type=int, default=None,
                        help='Optional RNG seed for context sampling')
     parser.add_argument('--cpd-cache-dir', type=str, default='data/bloomberg/cpd_cache',
@@ -778,8 +843,8 @@ def main():
     symbols = source.symbols()
     print(f"Found {len(symbols)} symbols: {symbols[:10]}...")
 
-    # Load prices
-    prices = source.load_prices(symbols, start='2018-01-01', end='2023-12-31')
+    # Load prices - using full backtest period as per paper (1990-2023)
+    prices = source.load_prices(symbols, start='1990-01-01', end='2023-12-31')
     print(f"Loaded prices: {prices.shape}")
 
     # Train/val split (time-based)

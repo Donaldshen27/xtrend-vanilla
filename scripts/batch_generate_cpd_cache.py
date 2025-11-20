@@ -4,16 +4,26 @@ This script pre-generates CPD segmentation cache files that were previously
 created during training. This allows faster training iterations and easier
 hyperparameter experimentation.
 
+Defaults match paper's best X-Trend-Q configuration (2.70 Sharpe):
+- Full backtest period: 1990-2023
+- CPD lookback: 21 days
+- CPD threshold: 0.95 (for 63-day max length)
+- Max regime length: 63 days
+
 Usage:
+    # Generate cache with paper-optimal defaults
     uv run python scripts/batch_generate_cpd_cache.py \
         --data-path data/bloomberg/processed \
-        --cache-dir data/bloomberg/cpd_cache \
-        --start 2000-01-01 \
-        --end 2020-12-31 \
-        --lookback 63 \
-        --threshold 0.9 \
+        --cache-dir data/bloomberg/cpd_cache
+
+    # Or override specific parameters
+    uv run python scripts/batch_generate_cpd_cache.py \
+        --start 1990-01-01 \
+        --end 2023-12-31 \
+        --lookback 21 \
+        --threshold 0.95 \
         --min-length 5 \
-        --max-length 21 \
+        --max-length 63 \
         --overwrite
 """
 import argparse
@@ -297,25 +307,25 @@ def main():
     )
     parser.add_argument(
         '--start',
-        default='2000-01-01',
-        help='Start date (YYYY-MM-DD)'
+        default='1990-01-01',
+        help='Start date (YYYY-MM-DD) - paper uses 1990'
     )
     parser.add_argument(
         '--end',
-        default='2020-12-31',
-        help='End date (YYYY-MM-DD)'
+        default='2023-12-31',
+        help='End date (YYYY-MM-DD) - paper uses 2023'
     )
     parser.add_argument(
         '--lookback',
         type=int,
-        default=63,
-        help='CPD lookback window (days)'
+        default=21,
+        help='CPD lookback window (days) - paper uses 21'
     )
     parser.add_argument(
         '--threshold',
         type=float,
-        default=0.9,
-        help='Severity threshold for change-point detection'
+        default=0.95,
+        help='Severity threshold for change-point detection (paper: 0.95 for lmax=63)'
     )
     parser.add_argument(
         '--min-length',
@@ -326,8 +336,8 @@ def main():
     parser.add_argument(
         '--max-length',
         type=int,
-        default=21,
-        help='Maximum regime length (days)'
+        default=63,
+        help='Maximum regime length (days) - paper best: 63'
     )
     parser.add_argument(
         '--overwrite',

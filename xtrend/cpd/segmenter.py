@@ -37,6 +37,7 @@ class GPCPDSegmenter:
             RegimeSegments containing detected regimes
         """
         segments = []
+        pending_segments = []
         t1 = len(prices) - 1  # Current regime end (inclusive)
         t = t1                # Scanning pointer that walks backward
 
@@ -104,6 +105,15 @@ class GPCPDSegmenter:
                     t1 = t_cp_absolute - 1
                     t = t1
                     committed_cp = True
+                elif right_length < self.config.min_length:
+                    # Edge shock near the end: record a provisional split but keep scanning.
+                    pending_segments.append(RegimeSegment(
+                        start_idx=t_cp_absolute,
+                        end_idx=t1,
+                        severity=severity,
+                        start_date=prices.index[t_cp_absolute],
+                        end_date=prices.index[t1]
+                    ))
 
             if committed_cp:
                 continue
@@ -141,5 +151,10 @@ class GPCPDSegmenter:
 
         # Reverse (built backward)
         segments.reverse()
+        pending_segments.reverse()
 
-        return RegimeSegments(segments=segments, config=self.config)
+        return RegimeSegments(
+            segments=segments,
+            config=self.config,
+            pending_segments=pending_segments
+        )

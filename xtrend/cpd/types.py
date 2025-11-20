@@ -1,5 +1,5 @@
 """Type definitions for GP-CPD."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, NamedTuple
 
 import numpy as np
@@ -17,7 +17,7 @@ class CPDConfig:
         max_length: Maximum regime length (trading days)
     """
     lookback: int = 63  # Increased from 21 for more robust GP fits
-    threshold: float = 0.7  # Tuned for real-market severity distribution
+    threshold: float = 0.85  # Tuned for real-market severity distribution
     min_length: int = 5
     max_length: int = 21
 
@@ -61,13 +61,21 @@ class RegimeSegments:
     Attributes:
         segments: List of detected regime segments
         config: Configuration used for detection
+        pending_segments: Provisional splits that violated min_length but had strong evidence
     """
     segments: List[RegimeSegment]
     config: CPDConfig
+    pending_segments: List[RegimeSegment] = field(default_factory=list)
 
     def __len__(self) -> int:
         """Number of detected regimes."""
         return len(self.segments)
+
+    def __getattr__(self, name):
+        # Backward compatibility for pickles created before pending_segments existed.
+        if name == "pending_segments":
+            return []
+        raise AttributeError(name)
 
     def validate_statistics(self, prices: pd.Series) -> 'ValidationReport':
         """Enhanced statistical validation with dispersion and quality metrics.

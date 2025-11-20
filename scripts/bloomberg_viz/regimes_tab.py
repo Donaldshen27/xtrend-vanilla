@@ -52,6 +52,16 @@ def run_cpd_cached(asset: str, start_date, end_date,
     return segments, prices, config
 
 
+def _safe_severity(value):
+    """Clamp severity to [0,1] and make it finite."""
+    if value is None:
+        return 0.0
+    val = float(value)
+    if not np.isfinite(val):
+        return 0.0
+    return float(np.clip(val, 0.0, 1.0))
+
+
 def parse_cache_filename(filename: str):
     """Parse cache filename metadata produced by training script."""
     stem = filename.replace(".pkl", "")
@@ -295,11 +305,12 @@ def render_regime_chart(prices, segments, asset):
 
     for i, seg in enumerate(segments.segments):
         color = colors[i % len(colors)]
+        severity = _safe_severity(seg.severity)
 
         fig.add_vrect(
             x0=seg.start_date, x1=seg.end_date,
             fillcolor=color,
-            opacity=0.15 + 0.25 * seg.severity,
+            opacity=0.15 + 0.25 * severity,
             layer="below", line_width=0,
             annotation_text=f"R{i+1}",
             annotation_position="top left"
@@ -309,8 +320,20 @@ def render_regime_chart(prices, segments, asset):
             fig.add_vline(
                 x=seg.start_date,
                 line_dash="dash", line_color="red",
-                line_width=1.5, opacity=seg.severity
+                line_width=1.5, opacity=severity
             )
+
+    # Pending (provisional) segments: draw with dotted outlines and low opacity
+    for seg in getattr(segments, "pending_segments", []):
+        pending_sev = _safe_severity(seg.severity)
+        fig.add_vrect(
+            x0=seg.start_date, x1=seg.end_date,
+            fillcolor="rgba(255,0,0,0.08)",
+            opacity=0.2 + 0.2 * pending_sev,
+            layer="below", line_width=1, line_dash="dot", line_color="red",
+            annotation_text="pending",
+            annotation_position="top left"
+        )
 
     fig.update_layout(
         title=f"{asset} - {len(segments.segments)} Regimes",
@@ -334,6 +357,20 @@ def render_regime_chart(prices, segments, asset):
     ])
 
     st.dataframe(regime_df, use_container_width=True, hide_index=True)
+
+    # Pending regimes (edge splits not yet meeting min_length)
+    if getattr(segments, "pending_segments", []):
+        st.warning("Pending change-point(s) detected near the edge; awaiting more length to satisfy min_length.")
+        pending_df = pd.DataFrame([
+            {
+                'Start': seg.start_date.strftime('%Y-%m-%d'),
+                'End': seg.end_date.strftime('%Y-%m-%d'),
+                'Days': seg.end_idx - seg.start_idx + 1,
+                'Severity': f"{_safe_severity(seg.severity):.3f}"
+            }
+            for seg in segments.pending_segments
+        ])
+        st.dataframe(pending_df, use_container_width=True, hide_index=True)
 
 
 def render_validation_results(segments, prices):

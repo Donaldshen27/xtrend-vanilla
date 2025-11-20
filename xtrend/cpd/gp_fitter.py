@@ -67,9 +67,10 @@ class GPFitter:
         # Normalize y to z-scores for numerical stability
         # GP kernels expect standardized inputs to avoid numerical issues
         y_mean = y.mean()
-        y_std = y.std()
-        if y_std < 1e-8:
-            y_std = 1.0  # Avoid division by zero for constant sequences
+        # Use population std (unbiased=False) to avoid NaNs for very short windows.
+        y_std = y.std(unbiased=False)
+        if not torch.isfinite(y_std) or y_std < 1e-8:
+            y_std = torch.tensor(1.0)  # Avoid division by zero for constant/degenerate sequences
         y_norm = (y - y_mean) / y_std
 
         # Create stationary kernel (Matérn nu=1.5)
@@ -96,9 +97,9 @@ class GPFitter:
                 output = model(x)
                 loss = -mll(output, y_norm)
 
-                # Check for NaN during training
-                if torch.isnan(loss):
-                    raise RuntimeError("NaN loss encountered during optimization")
+                # Check for NaN/inf during training
+                if not torch.isfinite(loss):
+                    raise RuntimeError("Non-finite loss encountered during optimization")
 
                 loss.backward()
                 optimizer.step()
@@ -119,9 +120,9 @@ class GPFitter:
                 output = model(x)
                 log_mll_value = mll(output, y_norm).item()
 
-                # Final check for NaN output
-                if math.isnan(log_mll_value):
-                    raise RuntimeError("NaN MLL output")
+                # Final check for non-finite output
+                if not math.isfinite(log_mll_value):
+                    raise RuntimeError("Non-finite MLL output")
 
         except Exception:
             # Fallback for failed stationary fit
@@ -150,9 +151,10 @@ class GPFitter:
         # Normalize y to z-scores for numerical stability
         # Normalize BEFORE splitting to ensure consistent scaling
         y_mean = y.mean()
-        y_std = y.std()
-        if y_std < 1e-8:
-            y_std = 1.0  # Avoid division by zero for constant sequences
+        # Use population std (unbiased=False) to avoid NaNs for very short windows.
+        y_std = y.std(unbiased=False)
+        if not torch.isfinite(y_std) or y_std < 1e-8:
+            y_std = torch.tensor(1.0)  # Avoid division by zero for constant/degenerate sequences
         y_norm = (y - y_mean) / y_std
 
         n = len(x)
@@ -193,6 +195,8 @@ class GPFitter:
                     optimizer1.zero_grad()
                     output1 = model1(x1)
                     loss1 = -mll1(output1, y1_norm)
+                    if not torch.isfinite(loss1):
+                        raise RuntimeError("Non-finite loss in segment 1")
                     loss1.backward()
                     optimizer1.step()
 
@@ -219,6 +223,8 @@ class GPFitter:
                     optimizer2.zero_grad()
                     output2 = model2(x2)
                     loss2 = -mll2(output2, y2_norm)
+                    if not torch.isfinite(loss2):
+                        raise RuntimeError("Non-finite loss in segment 2")
                     loss2.backward()
                     optimizer2.step()
 
@@ -255,21 +261,26 @@ class GPFitter:
 
         Returns:
             Severity in [0, 1] where:
-            - ≈ 0.5: No evidence for change-point
+            - ≈ 0.5: No evidence for change-point (or both models failed)
             - ≥ 0.9: Strong evidence (Δ ≥ 2.2)
-            - 1.0: Stationary model failed (returned -inf)
-            - 0.0: Both models failed (edge case, no detection possible)
+            - 1.0: Stationary model failed with reasonable CP fit
+            - 0.0: CP model failed but stationary succeeded
         """
         # Handle edge cases from failed optimizations
-        if math.isinf(log_mll_stationary) and math.isinf(log_mll_changepoint):
-            # Both models failed - no evidence either way
+        stat_fail = math.isinf(log_mll_stationary) and log_mll_stationary < 0
+        cp_fail = math.isinf(log_mll_changepoint) and log_mll_changepoint < 0
+
+        if stat_fail and cp_fail:
+            # Both models failed - neutral evidence
             return 0.5
-        if math.isinf(log_mll_stationary) and log_mll_stationary < 0:
-            # Stationary failed but changepoint succeeded - strong evidence for CP
-            return 1.0
-        if math.isinf(log_mll_changepoint) and log_mll_changepoint < 0:
-            # Changepoint failed but stationary succeeded - no evidence for CP
+
+        if cp_fail and not stat_fail:
+            # Changepoint failed but stationary succeeded - evidence against CP
             return 0.0
+
+        if stat_fail and not cp_fail:
+            # Stationary failed, CP succeeded - strong evidence for CP
+            return 1.0
 
         delta = log_mll_changepoint - log_mll_stationary
         severity = torch.sigmoid(torch.tensor(delta)).item()

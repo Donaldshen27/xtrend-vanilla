@@ -28,6 +28,7 @@ Usage:
 """
 import argparse
 import json
+import os
 import pickle
 import sys
 import warnings
@@ -35,6 +36,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+from joblib import Parallel, delayed
 from tqdm import tqdm
 
 try:
@@ -65,6 +67,104 @@ def save_cached_regimes(path: Path, segments):
         pickle.dump({"segments": segments}, fh)
 
 
+def process_symbol(
+    symbol: str,
+    data_path: str,
+    cache_path: Path,
+    start_date: str,
+    end_date: str,
+    lookback: int,
+    threshold: float,
+    min_length: int,
+    max_length: int,
+    overwrite: bool,
+):
+    """Worker to load data, run CPD, and persist cache for one symbol."""
+    warnings.filterwarnings(
+        "ignore",
+        message=r".*matches the stored training data.*",
+    )
+    start_time = datetime.now()
+
+    try:
+        # Re-create heavy objects per worker to avoid pickling issues.
+        source = BloombergParquetSource(root_path=data_path)
+        config = CPDConfig(
+            lookback=lookback,
+            threshold=threshold,
+            min_length=min_length,
+            max_length=max_length,
+        )
+        segmenter = GPCPDSegmenter(config)
+
+        tqdm.write(f"[pid {os.getpid()}] processing {symbol}")
+
+        prices_df = source.load_prices([symbol], start=start_date, end=end_date)
+        price_series = prices_df[symbol].copy()
+
+        if price_series.isna().all():
+            return {
+                'symbol': symbol,
+                'status': 'failed_nan',
+                'error': 'All NaN prices',
+            }
+
+        price_series = price_series.ffill().bfill()
+
+        n_days = len(price_series)
+        start_ts = price_series.index[0]
+        end_ts = price_series.index[-1]
+
+        filename = generate_cache_filename(symbol, start_ts, end_ts, n_days, config)
+        cache_file = cache_path / filename
+
+        if cache_file.exists() and not overwrite:
+            return {
+                'symbol': symbol,
+                'status': 'cached',
+                'n_days': n_days,
+            }
+
+        segments = segmenter.fit_segment(price_series)
+
+        n_segments = len(segments.segments)
+        severities = [seg.severity for seg in segments.segments]
+        lengths = [seg.end_idx - seg.start_idx + 1 for seg in segments.segments]
+
+        n_detected = sum(1 for s in severities if s >= threshold)
+        n_fallback = n_segments - n_detected
+        detection_rate = n_detected / n_segments if n_segments > 0 else 0
+        n_max_length = sum(1 for l in lengths if l == max_length)
+        fallback_fraction = n_max_length / n_segments if n_segments > 0 else 0
+
+        save_cached_regimes(cache_file, segments)
+
+        duration = (datetime.now() - start_time).total_seconds()
+
+        return {
+            'symbol': symbol,
+            'status': 'generated',
+            'worker_pid': os.getpid(),
+            'n_days': n_days,
+            'n_segments': n_segments,
+            'n_detected': n_detected,
+            'n_fallback': n_fallback,
+            'detection_rate': detection_rate,
+            'fallback_fraction': fallback_fraction,
+            'mean_severity': sum(severities) / len(severities) if severities else 0,
+            'mean_length': sum(lengths) / len(lengths) if lengths else 0,
+            'duration_seconds': duration,
+            'cache_file': cache_file.name,
+        }
+
+    except Exception as exc:  # pragma: no cover - defensive guardrail
+        return {
+            'symbol': symbol,
+            'status': 'failed',
+            'error': str(exc),
+        }
+
+
 def batch_generate_cpd_cache(
     data_path: str,
     cache_dir: str,
@@ -76,6 +176,7 @@ def batch_generate_cpd_cache(
     max_length: int,
     overwrite: bool = False,
     symbols: list = None,
+    workers: int = -1,
 ):
     """Generate CPD cache files for all symbols.
 
@@ -90,6 +191,7 @@ def batch_generate_cpd_cache(
         max_length: Maximum regime length (days)
         overwrite: If True, regenerate even if cache exists
         symbols: Optional list of specific symbols to process (None = all)
+        workers: Number of parallel workers (-1 uses all cores)
     """
     cache_path = Path(cache_dir)
     cache_path.mkdir(parents=True, exist_ok=True)
@@ -101,8 +203,6 @@ def batch_generate_cpd_cache(
         min_length=min_length,
         max_length=max_length
     )
-    segmenter = GPCPDSegmenter(config)
-
     # Save hyperparameters to log file for reproducibility
     config_log = cache_path / f"config_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     config_dict = {
@@ -138,127 +238,35 @@ def batch_generate_cpd_cache(
         if not symbols_to_process:
             raise ValueError(f"No valid symbols found. Available: {all_symbols[:10]}...")
 
-    print(f"Processing {len(symbols_to_process)} symbols")
+    print(f"Processing {len(symbols_to_process)} symbols with {workers} workers...")
 
-    # Track per-symbol results for CSV output
-    results = []
+    # Dispatch work in parallel across CPU cores.
+    results = Parallel(n_jobs=workers, prefer="processes", verbose=10, batch_size=1)(
+        delayed(process_symbol)(
+            symbol,
+            data_path,
+            cache_path,
+            start_date,
+            end_date,
+            lookback,
+            threshold,
+            min_length,
+            max_length,
+            overwrite,
+        )
+        for symbol in symbols_to_process
+    )
 
-    # Track statistics
+    # Aggregate statistics
     stats = {
         'total': len(symbols_to_process),
-        'generated': 0,
-        'skipped_cached': 0,
-        'failed': 0,
-        'total_segments': 0,
-        'total_detected': 0,  # Segments with severity >= threshold
-        'total_fallback': 0,  # Segments that hit fallback (severity < threshold)
+        'generated': sum(1 for r in results if r['status'] == 'generated'),
+        'skipped_cached': sum(1 for r in results if r['status'] == 'cached'),
+        'failed': sum(1 for r in results if r['status'] not in ('generated', 'cached')),
+        'total_segments': sum(r.get('n_segments', 0) for r in results),
+        'total_detected': sum(r.get('n_detected', 0) for r in results),
+        'total_fallback': sum(r.get('n_fallback', 0) for r in results),
     }
-
-    # Process each symbol (load prices individually to avoid massive memory use)
-    for symbol in tqdm(symbols_to_process, desc="Generating CPD caches"):
-        symbol_start_time = datetime.now()
-
-        try:
-            # Load prices for this symbol only (memory efficient)
-            tqdm.write(f"  Processing {symbol}...")
-            prices_df = source.load_prices([symbol], start=start_date, end=end_date)
-            price_series = prices_df[symbol].copy()
-
-            # Skip if all NaN
-            if price_series.isna().all():
-                tqdm.write(f"  ⚠️  {symbol}: all NaN prices, skipping")
-                stats['failed'] += 1
-                results.append({
-                    'symbol': symbol,
-                    'status': 'failed_nan',
-                    'error': 'All NaN prices',
-                })
-                continue
-
-            # Fill NaN values causally
-            price_series = price_series.ffill().bfill()
-
-            # Use actual series length for this symbol
-            n_days = len(price_series)
-            start_ts = price_series.index[0]
-            end_ts = price_series.index[-1]
-
-            # Check if already cached
-            filename = generate_cache_filename(symbol, start_ts, end_ts, n_days, config)
-            cache_file = cache_path / filename
-
-            if cache_file.exists() and not overwrite:
-                stats['skipped_cached'] += 1
-                tqdm.write(f"  ✓ {symbol}: cached ({cache_file.name})")
-                results.append({
-                    'symbol': symbol,
-                    'status': 'cached',
-                    'n_days': n_days,
-                })
-                continue
-
-            # Run segmentation
-            segments = segmenter.fit_segment(price_series)
-
-            # Calculate statistics
-            n_segments = len(segments.segments)
-            severities = [seg.severity for seg in segments.segments]
-            lengths = [seg.end_idx - seg.start_idx + 1 for seg in segments.segments]
-
-            # Count detected vs fallback
-            n_detected = sum(1 for s in severities if s >= threshold)
-            n_fallback = n_segments - n_detected
-
-            # Detection rate
-            detection_rate = n_detected / n_segments if n_segments > 0 else 0
-
-            # Check if all segments are max_length (likely fallback)
-            n_max_length = sum(1 for l in lengths if l == max_length)
-            fallback_fraction = n_max_length / n_segments if n_segments > 0 else 0
-
-            # Duration
-            duration = (datetime.now() - symbol_start_time).total_seconds()
-
-            # Save to cache
-            save_cached_regimes(cache_file, segments)
-
-            # Update global statistics
-            stats['generated'] += 1
-            stats['total_segments'] += n_segments
-            stats['total_detected'] += n_detected
-            stats['total_fallback'] += n_fallback
-
-            tqdm.write(
-                f"  ✓ {symbol}: {n_segments} segments, "
-                f"{detection_rate:.1%} detected, "
-                f"{fallback_fraction:.1%} fallback ({duration:.1f}s)"
-            )
-
-            # Record results
-            results.append({
-                'symbol': symbol,
-                'status': 'generated',
-                'n_days': n_days,
-                'n_segments': n_segments,
-                'n_detected': n_detected,
-                'n_fallback': n_fallback,
-                'detection_rate': detection_rate,
-                'fallback_fraction': fallback_fraction,
-                'mean_severity': sum(severities) / len(severities) if severities else 0,
-                'mean_length': sum(lengths) / len(lengths) if lengths else 0,
-                'duration_seconds': duration,
-                'cache_file': cache_file.name,
-            })
-
-        except Exception as exc:
-            tqdm.write(f"  ✗ {symbol}: FAILED - {exc}")
-            stats['failed'] += 1
-            results.append({
-                'symbol': symbol,
-                'status': 'failed',
-                'error': str(exc),
-            })
-            continue
 
     # Write results to CSV
     results_csv = cache_path / f"generation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
@@ -349,6 +357,12 @@ def main():
         nargs='+',
         help='Optional: specific symbols to process (default: all)'
     )
+    parser.add_argument(
+        '--workers',
+        type=int,
+        default=-1,
+        help='Number of parallel workers (-1 = all cores)'
+    )
 
     args = parser.parse_args()
 
@@ -363,6 +377,7 @@ def main():
         max_length=args.max_length,
         overwrite=args.overwrite,
         symbols=args.symbols,
+        workers=args.workers,
     )
 
 

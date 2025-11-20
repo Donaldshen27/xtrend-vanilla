@@ -124,6 +124,13 @@ class XTrendDataset(Dataset):
         self._cache_fallback_notice = False
         # Pre-compute date -> index map for reindexing cached regimes
         self._date_to_idx = {pd.Timestamp(date): idx for idx, date in enumerate(self.dates)}
+        # Map each symbol to its first real observation index (listing offset)
+        self.listing_offsets = {}
+        for symbol in symbols:
+            first_valid = prices[symbol].first_valid_index()
+            if first_valid is None:
+                continue
+            self.listing_offsets[symbol] = self.dates.get_loc(first_valid)
 
         # Precompute features and returns for all symbols
         print("Precomputing Phase 1 features and returns...")
@@ -190,7 +197,16 @@ class XTrendDataset(Dataset):
                 if raw_series.isna().all():
                     continue
 
-                price_series = self._prepare_price_series(raw_series)
+                listing_offset = self.listing_offsets.get(symbol)
+                if listing_offset is None:
+                    continue  # No real observations
+
+                price_series_full = self._prepare_price_series(raw_series)
+                # Trim to real trading span to avoid feeding pre-listing NaNs/epsilons
+                price_series = price_series_full.iloc[listing_offset:]
+                if price_series.isna().any():
+                    price_series = price_series.fillna(method="ffill").fillna(1e-8)
+
                 cache_path = self._regime_cache_path(symbol)
                 cache_candidates = []
                 if cache_path:
@@ -202,7 +218,7 @@ class XTrendDataset(Dataset):
                 cached_payload = None
                 for candidate in cache_candidates:
                     if candidate and candidate.exists():
-                        cached_payload = self._load_cached_regimes(candidate)
+                        cached_payload = self._load_cached_regimes(candidate, symbol)
                         if cached_payload is not None:
                             if cache_path and candidate != cache_path and not self._cache_fallback_notice:
                                 warnings.warn(
@@ -216,7 +232,21 @@ class XTrendDataset(Dataset):
                     self.regimes[symbol] = cached_payload
                     continue
                 try:
-                    self.regimes[symbol] = segmenter.fit_segment(price_series)
+                    segmented = segmenter.fit_segment(price_series)
+                    # Shift indices back to global calendar so samplers align with features
+                    shifted_segments = [
+                        RegimeSegment(
+                            start_idx=seg.start_idx + listing_offset,
+                            end_idx=seg.end_idx + listing_offset,
+                            severity=seg.severity,
+                            start_date=seg.start_date,
+                            end_date=seg.end_date,
+                        )
+                        for seg in segmented.segments
+                    ]
+                    self.regimes[symbol] = RegimeSegments(
+                        segments=shifted_segments, config=segmented.config
+                    )
                     if cache_path:
                         self._save_cached_regimes(cache_path, self.regimes[symbol])
                 except Exception as exc:
@@ -252,10 +282,20 @@ class XTrendDataset(Dataset):
         # Only forward-fill (causal) - do NOT backfill (creates fake history)
         aligned = aligned.ffill()
 
-        # If any NaNs remain at the start (before asset listing), leave them as NaN
-        # _create_samples will skip those indices when creating training samples
-        # For any other NaNs (shouldn't happen), fill with small epsilon
-        return aligned.fillna(1e-8)
+        # Leave the pre-listing span as NaN so downstream samplers can filter it out.
+        first_valid = aligned.first_valid_index()
+        if first_valid is None:
+            return aligned  # all NaN, asset will be skipped
+
+        pre_listing_mask = aligned.index < first_valid
+        if pre_listing_mask.any():
+            aligned.loc[pre_listing_mask] = pd.NA
+
+        # For any remaining NaNs inside the trading history, fall back to small epsilon
+        post_listing_mask = ~pre_listing_mask
+        aligned.loc[post_listing_mask] = aligned.loc[post_listing_mask].fillna(1e-8)
+
+        return aligned
 
     def _compute_features(self, prices: pd.Series) -> pd.DataFrame:
         """Compute 8 features for a price series (matching paper)."""
@@ -276,21 +316,17 @@ class XTrendDataset(Dataset):
             if symbol not in self.feature_tensors:
                 continue
 
-            # Get the actual raw series to find first valid (non-NaN) price
-            raw_series = self.prices[symbol]
-            first_valid_idx = raw_series.first_valid_index()
-
-            if first_valid_idx is None:
+            listing_offset = self.listing_offsets.get(symbol)
+            if listing_offset is None:
                 # Asset has no valid data at all, skip
                 skipped_assets.append(symbol)
                 continue
 
-            # Convert timestamp to integer index in the global date array
-            start_offset = self.dates.get_loc(first_valid_idx)
+            first_valid_idx = self.dates[listing_offset]
 
             # Only start sampling after asset exists AND has min_history warmup
             # This ensures we have real data for feature calculation
-            real_start_idx = start_offset + self.min_history
+            real_start_idx = listing_offset + self.min_history
 
             feat = self.feature_tensors[symbol]
             n = len(feat)
@@ -309,7 +345,7 @@ class XTrendDataset(Dataset):
                 continue
 
             # Track assets that started after dataset start (late listings)
-            if start_offset > self.min_history:
+            if listing_offset > self.min_history:
                 years_late = (first_valid_idx - self.dates[0]).days / 365.25
                 late_start_assets.append((symbol, first_valid_idx, years_late))
 
@@ -366,7 +402,7 @@ class XTrendDataset(Dataset):
             return candidate
         return None
 
-    def _load_cached_regimes(self, path: Path):
+    def _load_cached_regimes(self, path: Path, symbol: str):
         """Load cached regimes for a symbol."""
         try:
             with path.open("rb") as fh:
@@ -374,7 +410,7 @@ class XTrendDataset(Dataset):
             segments = payload.get("segments")
             if not segments:
                 return None
-            return self._align_cached_segments(segments)
+            return self._align_cached_segments(symbol, segments)
         except Exception as exc:
             warnings.warn(f"Failed to load CPD cache {path}: {exc}")
             return None
@@ -387,17 +423,21 @@ class XTrendDataset(Dataset):
         except Exception as exc:
             warnings.warn(f"Failed to save CPD cache {path}: {exc}")
 
-    def _align_cached_segments(self, segments: RegimeSegments) -> Optional[RegimeSegments]:
+    def _align_cached_segments(
+        self, symbol: str, segments: RegimeSegments
+    ) -> Optional[RegimeSegments]:
         """Clip cached regime indices to the dataset's calendar."""
         dataset_start = self.dates[0]
         dataset_end = self.dates[-1]
         aligned = []
+        listing_offset = self.listing_offsets.get(symbol, 0)
+        listing_date = self.dates[listing_offset]
 
         for seg in segments.segments:
             if seg.end_date < dataset_start or seg.start_date > dataset_end:
                 continue
 
-            start_date = max(seg.start_date, dataset_start)
+            start_date = max(seg.start_date, dataset_start, listing_date)
             end_date = min(seg.end_date, dataset_end)
 
             start_idx = self._date_to_idx.get(start_date)
@@ -496,7 +536,8 @@ class XTrendDataset(Dataset):
                 C=self.context_size,
                 max_length=self.context_max_length,
                 seed=self.seed,
-                exclude_symbols=exclude
+                exclude_symbols=exclude,
+                listing_offsets=self.listing_offsets,
             )
         if method == "time_equivalent":
             return sample_time_equivalent(
@@ -507,7 +548,8 @@ class XTrendDataset(Dataset):
                 C=self.context_size,
                 l_t=self.target_len,
                 seed=self.seed,
-                exclude_symbols=exclude
+                exclude_symbols=exclude,
+                listing_offsets=self.listing_offsets,
             )
         if method == "final_hidden_state":
             return sample_final_hidden_state(
@@ -518,7 +560,8 @@ class XTrendDataset(Dataset):
                 C=self.context_size,
                 l_c=self.context_max_length,
                 seed=self.seed,
-                exclude_symbols=exclude
+                exclude_symbols=exclude,
+                listing_offsets=self.listing_offsets,
             )
         raise ValueError(f"Unknown context method: {method}")
 

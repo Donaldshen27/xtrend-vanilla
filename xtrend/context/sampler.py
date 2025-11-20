@@ -36,7 +36,8 @@ def sample_final_hidden_state(
     C: int,
     l_c: int,
     seed: Optional[int] = None,
-    exclude_symbols: Optional[List[str]] = None
+    exclude_symbols: Optional[List[str]] = None,
+    listing_offsets: Optional[Dict[str, int]] = None,
 ) -> ContextBatch:
     """Sample C random sequences of fixed length l_c (Final Hidden State method).
 
@@ -52,6 +53,8 @@ def sample_final_hidden_state(
         l_c: Fixed context length (days)
         seed: Random seed for reproducibility
         exclude_symbols: Symbols to exclude (for zero-shot)
+        listing_offsets: Optional map of symbol -> first valid index. Windows
+            starting before the listing offset are rejected.
 
     Returns:
         ContextBatch with C sequences of length l_c
@@ -76,6 +79,7 @@ def sample_final_hidden_state(
         entity_id = symbols.index(symbol)  # Map symbol to entity ID
         feature_tensor = features[symbol]
         available_len = feature_tensor.shape[0]
+        listing_offset = listing_offsets.get(symbol, 0) if listing_offsets else 0
 
         if available_len < l_c:
             continue  # Not enough history for even one window
@@ -84,12 +88,18 @@ def sample_final_hidden_state(
         # Valid window: [start_idx, end_idx] where end_idx < target_idx
         symbol_max_end_idx = min(target_idx - 1, available_len - 1)
         min_start_idx = l_c - 1  # Need at least l_c days
+        min_end_idx = listing_offset + l_c - 1  # window must be fully post-listing
 
         if symbol_max_end_idx < min_start_idx:
             continue  # Target date is before symbol accrued enough history
+        if symbol_max_end_idx < min_end_idx:
+            continue  # Not enough post-listing history for window
 
-        for end_idx in range(min_start_idx, symbol_max_end_idx + 1):
+        start_end = max(min_start_idx, min_end_idx)
+        for end_idx in range(start_end, symbol_max_end_idx + 1):
             start_idx = end_idx - l_c + 1
+            if start_idx < listing_offset:
+                continue
             candidates.append({
                 'symbol': symbol,
                 'entity_id': entity_id,
@@ -130,7 +140,8 @@ def sample_time_equivalent(
     C: int,
     l_t: int,
     seed: Optional[int] = None,
-    exclude_symbols: Optional[List[str]] = None
+    exclude_symbols: Optional[List[str]] = None,
+    listing_offsets: Optional[Dict[str, int]] = None,
 ) -> ContextBatch:
     """Sample C sequences with same length as target (Time-Equivalent method).
 
@@ -146,6 +157,8 @@ def sample_time_equivalent(
         l_t: Target sequence length (context length = l_t)
         seed: Random seed for reproducibility
         exclude_symbols: Symbols to exclude (for zero-shot)
+        listing_offsets: Optional map of symbol -> first valid index. Windows
+            starting before the listing offset are rejected.
 
     Returns:
         ContextBatch with C sequences of length l_t
@@ -178,10 +191,13 @@ def sample_time_equivalent(
         entity_id = symbols.index(symbol)
         feature_tensor = features[symbol]
         available_len = feature_tensor.shape[0]
+        listing_offset = listing_offsets.get(symbol, 0) if listing_offsets else 0
 
         # Symbol must have data covering the aligned window [aligned_start_idx, aligned_end_idx]
         if available_len <= aligned_end_idx:
             continue
+        if aligned_start_idx < listing_offset:
+            continue  # Window would include pre-listing synthetic region
 
         candidates.append({
             'symbol': symbol,
@@ -224,7 +240,8 @@ def sample_cpd_segmented(
     C: int,
     max_length: int,
     seed: Optional[int] = None,
-    exclude_symbols: Optional[List[str]] = None
+    exclude_symbols: Optional[List[str]] = None,
+    listing_offsets: Optional[Dict[str, int]] = None,
 ) -> ContextBatch:
     """Sample C regime sequences from CPD segmentation (Primary method).
 
@@ -242,6 +259,8 @@ def sample_cpd_segmented(
         max_length: Maximum regime length (truncate if longer)
         seed: Random seed for reproducibility
         exclude_symbols: Symbols to exclude (for zero-shot)
+        listing_offsets: Optional map of symbol -> first valid index. Regimes
+            starting before the listing offset are ignored.
 
     Returns:
         ContextBatch with C regime sequences
@@ -268,10 +287,13 @@ def sample_cpd_segmented(
 
         entity_id = symbols.index(symbol)
         regime_segs = regimes[symbol]
+        listing_offset = listing_offsets.get(symbol, 0) if listing_offsets else 0
 
         for regime in regime_segs.segments:
             # Check causality: regime must end before target
             if regime.end_date >= target_timestamp:
+                continue
+            if regime.start_idx < listing_offset:
                 continue
 
             # Regime length

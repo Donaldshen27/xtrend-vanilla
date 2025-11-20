@@ -1,4 +1,5 @@
 """GP model fitting and likelihood computation for CPD."""
+import math
 from typing import Optional, Tuple
 
 import gpytorch
@@ -61,6 +62,7 @@ class GPFitter:
 
         Returns:
             tuple: (fitted_model, log_marginal_likelihood)
+                   Returns -inf for log_mll if optimization fails
         """
         # Normalize y to z-scores for numerical stability
         # GP kernels expect standardized inputs to avoid numerical issues
@@ -78,7 +80,7 @@ class GPFitter:
 
         model = ExactGPModel(x, y_norm, likelihood, kernel)
 
-        # Optimize
+        # Optimize with error handling
         model.train()
         likelihood.train()
 
@@ -88,28 +90,45 @@ class GPFitter:
         prev_loss = float('inf')
         patience_count = 0
 
-        for i in range(self.max_iter):
-            optimizer.zero_grad()
-            output = model(x)
-            loss = -mll(output, y_norm)
-            loss.backward()
-            optimizer.step()
+        try:
+            for i in range(self.max_iter):
+                optimizer.zero_grad()
+                output = model(x)
+                loss = -mll(output, y_norm)
 
-            # Convergence check
-            if abs(loss.item() - prev_loss) < self.convergence_tol:
-                patience_count += 1
-                if patience_count >= self.patience:
-                    break
-            else:
-                patience_count = 0
-            prev_loss = loss.item()
+                # Check for NaN during training
+                if torch.isnan(loss):
+                    raise RuntimeError("NaN loss encountered during optimization")
 
-        # Compute final log marginal likelihood
-        model.eval()
-        likelihood.eval()
-        with torch.no_grad():
-            output = model(x)
-            log_mll_value = mll(output, y_norm).item()
+                loss.backward()
+                optimizer.step()
+
+                # Convergence check
+                if abs(loss.item() - prev_loss) < self.convergence_tol:
+                    patience_count += 1
+                    if patience_count >= self.patience:
+                        break
+                else:
+                    patience_count = 0
+                prev_loss = loss.item()
+
+            # Compute final log marginal likelihood
+            model.eval()
+            likelihood.eval()
+            with torch.no_grad():
+                output = model(x)
+                log_mll_value = mll(output, y_norm).item()
+
+                # Final check for NaN output
+                if math.isnan(log_mll_value):
+                    raise RuntimeError("NaN MLL output")
+
+        except Exception:
+            # Fallback for failed stationary fit
+            # If stationary fit fails, it's a terrible explanation for the data
+            # Return -inf so severity calculation works correctly:
+            # severity = sigmoid(finite - (-inf)) = 1.0
+            log_mll_value = float('-inf')
 
         return model, log_mll_value
 
@@ -238,7 +257,20 @@ class GPFitter:
             Severity in [0, 1] where:
             - ≈ 0.5: No evidence for change-point
             - ≥ 0.9: Strong evidence (Δ ≥ 2.2)
+            - 1.0: Stationary model failed (returned -inf)
+            - 0.0: Both models failed (edge case, no detection possible)
         """
+        # Handle edge cases from failed optimizations
+        if math.isinf(log_mll_stationary) and math.isinf(log_mll_changepoint):
+            # Both models failed - no evidence either way
+            return 0.5
+        if math.isinf(log_mll_stationary) and log_mll_stationary < 0:
+            # Stationary failed but changepoint succeeded - strong evidence for CP
+            return 1.0
+        if math.isinf(log_mll_changepoint) and log_mll_changepoint < 0:
+            # Changepoint failed but stationary succeeded - no evidence for CP
+            return 0.0
+
         delta = log_mll_changepoint - log_mll_stationary
         severity = torch.sigmoid(torch.tensor(delta)).item()
         return severity

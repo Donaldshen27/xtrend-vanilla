@@ -9,7 +9,7 @@ class TestGPFitter:
         """fit_stationary_gp returns GP model and log marginal likelihood."""
         x, y, _ = synthetic_changepoint_data
 
-        fitter = GPFitter()
+        fitter = GPFitter(max_iter=20, patience=3, lr=0.2, grid_stride=5, grid_max_candidates=8, quick_iter=5)
         model, log_mll = fitter.fit_stationary_gp(x, y)
 
         # Model should be returned
@@ -24,7 +24,7 @@ class TestGPFitter:
         """Stationary GP optimization converges properly."""
         x, y, _ = synthetic_changepoint_data
 
-        fitter = GPFitter()
+        fitter = GPFitter(max_iter=20, patience=3, lr=0.2, grid_stride=5, grid_max_candidates=8, quick_iter=5)
         model, log_mll = fitter.fit_stationary_gp(x, y)
 
         # Should converge to reasonable likelihood
@@ -37,7 +37,7 @@ class TestGPFitterChangePoint:
         """fit_changepoint_gp returns model, likelihood, and detected CP location."""
         x, y, true_cp = synthetic_changepoint_data
 
-        fitter = GPFitter()
+        fitter = GPFitter(max_iter=20, patience=3, lr=0.2, grid_stride=5, grid_max_candidates=8, quick_iter=5)
 
         # Fit stationary model first (for warm-start)
         stat_model, log_mll_M = fitter.fit_stationary_gp(x, y)
@@ -61,14 +61,14 @@ class TestGPFitterChangePoint:
 class TestSeverityComputation:
     def test_severity_formula_equal_likelihoods(self):
         """Equal likelihoods → severity ≈ 0.5."""
-        fitter = GPFitter()
+        fitter = GPFitter(max_iter=20, patience=3, lr=0.2, grid_stride=5, grid_max_candidates=8, quick_iter=5)
         severity = fitter.compute_severity(0.0, 0.0)
 
         assert severity == pytest.approx(0.5, abs=0.01)
 
     def test_severity_formula_strong_evidence(self):
         """Strong evidence (Δ ≥ 2.2) → severity ≥ 0.9."""
-        fitter = GPFitter()
+        fitter = GPFitter(max_iter=20, patience=3, lr=0.2, grid_stride=5, grid_max_candidates=8, quick_iter=5)
         severity = fitter.compute_severity(0.0, 2.2)
 
         assert severity >= 0.9

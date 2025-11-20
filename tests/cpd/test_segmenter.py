@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 import pytest
-from xtrend.cpd import CPDConfig, GPCPDSegmenter
+from xtrend.cpd import CPDConfig, GPCPDSegmenter, GPFitter
 
 
 class TestGPCPDSegmenter:
@@ -16,7 +16,9 @@ class TestGPCPDSegmenter:
     def test_fit_segment_returns_regime_segments(self, sample_prices):
         """fit_segment returns RegimeSegments object."""
         config = CPDConfig(lookback=21, threshold=0.9, min_length=5, max_length=21)
-        segmenter = GPCPDSegmenter(config)
+        fast_fitter = GPFitter(max_iter=15, patience=2, lr=0.15,
+                               grid_stride=5, grid_max_candidates=6, quick_iter=5)
+        segmenter = GPCPDSegmenter(config, fitter=fast_fitter)
 
         segments = segmenter.fit_segment(sample_prices)
 
@@ -30,7 +32,9 @@ class TestSegmentationProperties:
     def test_no_gaps_or_overlaps(self, sample_prices):
         """Segmentation produces contiguous coverage."""
         config = CPDConfig(lookback=21, threshold=0.9, min_length=5, max_length=21)
-        segmenter = GPCPDSegmenter(config)
+        fast_fitter = GPFitter(max_iter=15, patience=2, lr=0.15,
+                               grid_stride=5, grid_max_candidates=6, quick_iter=5)
+        segmenter = GPCPDSegmenter(config, fitter=fast_fitter)
 
         segments = segmenter.fit_segment(sample_prices)
 
@@ -53,13 +57,32 @@ class TestSegmentationProperties:
     def test_all_segments_within_length_bounds(self, sample_prices):
         """All segments satisfy min/max length constraints."""
         config = CPDConfig(lookback=21, threshold=0.9, min_length=5, max_length=21)
-        segmenter = GPCPDSegmenter(config)
+        fast_fitter = GPFitter(max_iter=15, patience=2, lr=0.15,
+                               grid_stride=5, grid_max_candidates=6, quick_iter=5)
+        segmenter = GPCPDSegmenter(config, fitter=fast_fitter)
 
         segments = segmenter.fit_segment(sample_prices)
 
         for seg in segments.segments:
             length = seg.end_idx - seg.start_idx + 1
             assert config.min_length <= length <= config.max_length
+
+    def test_stable_market_reaches_max_length(self):
+        """Stable series should accumulate to full max_length (not lookback)."""
+        dates = pd.date_range('2020-01-01', periods=30, freq='D')
+        prices = pd.Series(np.ones(30), index=dates, name='Close')
+
+        # lookback < max_length to expose the previous bug
+        config = CPDConfig(lookback=5, threshold=0.95, min_length=2, max_length=10)
+        fast_fitter = GPFitter(max_iter=10, patience=2, lr=0.2,
+                               grid_stride=2, grid_max_candidates=4, quick_iter=4)
+        segmenter = GPCPDSegmenter(config, fitter=fast_fitter)
+
+        segments = segmenter.fit_segment(prices)
+        lengths = [seg.end_idx - seg.start_idx + 1 for seg in segments.segments]
+
+        assert max(lengths) == config.max_length
+        assert any(length > config.lookback for length in lengths)
 
 
 class TestKnownEventDetection:
@@ -80,7 +103,9 @@ class TestKnownEventDetection:
         )
 
         config = CPDConfig(lookback=21, threshold=0.85, min_length=5, max_length=30)
-        segmenter = GPCPDSegmenter(config)
+        fast_fitter = GPFitter(max_iter=15, patience=2, lr=0.1,
+                               grid_stride=5, grid_max_candidates=6, quick_iter=5)
+        segmenter = GPCPDSegmenter(config, fitter=fast_fitter)
 
         segments = segmenter.fit_segment(prices)
 

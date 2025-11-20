@@ -1,5 +1,5 @@
 """GP model fitting and likelihood computation for CPD."""
-from typing import Tuple
+from typing import Optional, Tuple
 
 import gpytorch
 import torch
@@ -29,7 +29,10 @@ class GPFitter:
     """Fits GPs and computes marginal likelihoods for CPD."""
 
     def __init__(self, max_iter: int = 200, convergence_tol: float = 1e-3,
-                 patience: int = 5, lr: float = 0.1):
+                 patience: int = 5, lr: float = 0.1,
+                 grid_stride: Optional[int] = None,
+                 grid_max_candidates: Optional[int] = None,
+                 quick_iter: Optional[int] = None):
         """Initialize GP fitter.
 
         Args:
@@ -37,11 +40,17 @@ class GPFitter:
             convergence_tol: Convergence tolerance for loss
             patience: Patience for early stopping
             lr: Learning rate for Adam optimizer
+            grid_stride: Optional step size for CP grid search (defaults to n//30)
+            grid_max_candidates: Optional cap on number of CP candidates to evaluate
+            quick_iter: Optional cap for inner optimization steps per candidate
         """
         self.max_iter = max_iter
         self.convergence_tol = convergence_tol
         self.patience = patience
         self.lr = lr
+        self.grid_stride = grid_stride
+        self.grid_max_candidates = grid_max_candidates
+        self.quick_iter = quick_iter
 
     def fit_stationary_gp(self, x: Tensor, y: Tensor) -> Tuple[ExactGPModel, float]:
         """Fit single Matérn GP (no change-point).
@@ -134,9 +143,11 @@ class GPFitter:
         best_t_cp = n // 2  # Default to middle
 
         # Grid search over candidate change-point locations
-        # Use finer grid for better accuracy
-        # Note: upper bound is inclusive to handle edge case when n = 2*min_segment_length
-        candidates = range(min_segment_length, n - min_segment_length + 1, max(1, n // 30))
+        # Use configurable stride and optional cap for speed in tests
+        step = self.grid_stride if self.grid_stride is not None else max(1, n // 30)
+        candidates = list(range(min_segment_length, n - min_segment_length + 1, step))
+        if self.grid_max_candidates is not None:
+            candidates = candidates[:self.grid_max_candidates]
 
         for t_cp in candidates:
             # Split normalized data at candidate change-point
@@ -158,7 +169,8 @@ class GPFitter:
                 mll1 = gpytorch.mlls.ExactMarginalLogLikelihood(likelihood1, model1)
 
                 # Quick optimization (fewer iterations for grid search)
-                for _ in range(min(50, self.max_iter)):
+                inner_iter = min(self.quick_iter or 50, self.max_iter)
+                for _ in range(inner_iter):
                     optimizer1.zero_grad()
                     output1 = model1(x1)
                     loss1 = -mll1(output1, y1_norm)
@@ -183,7 +195,8 @@ class GPFitter:
                 optimizer2 = torch.optim.Adam(model2.parameters(), lr=self.lr)
                 mll2 = gpytorch.mlls.ExactMarginalLogLikelihood(likelihood2, model2)
 
-                for _ in range(min(50, self.max_iter)):
+                inner_iter = min(self.quick_iter or 50, self.max_iter)
+                for _ in range(inner_iter):
                     optimizer2.zero_grad()
                     output2 = model2(x2)
                     loss2 = -mll2(output2, y2_norm)

@@ -1,5 +1,5 @@
 """GP-based change-point detection segmenter."""
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 import pandas as pd
@@ -15,14 +15,15 @@ class GPCPDSegmenter:
     Implements recursive backward segmentation from X-Trend paper Algorithm 1.
     """
 
-    def __init__(self, config: CPDConfig):
+    def __init__(self, config: CPDConfig, fitter: Optional[GPFitter] = None):
         """Initialize segmenter.
 
         Args:
             config: CPD configuration
+            fitter: Optional GP fitter (useful to inject faster settings in tests)
         """
         self.config = config
-        self.fitter = GPFitter()
+        self.fitter = fitter or GPFitter()
 
     def fit_segment(self, prices: pd.Series) -> RegimeSegments:
         """Segment entire price series into regimes.
@@ -36,16 +37,16 @@ class GPCPDSegmenter:
             RegimeSegments containing detected regimes
         """
         segments = []
-        current_end = len(prices) - 1
+        t1 = len(prices) - 1  # Current regime end (inclusive)
+        t = t1                # Scanning pointer that walks backward
 
-        while current_end >= 0:
-            window_start = max(0, current_end - self.config.lookback + 1)
-            window = prices.iloc[window_start:current_end + 1]
+        while t >= 0:
+            window_start = max(0, t - self.config.lookback + 1)
+            window = prices.iloc[window_start:t + 1]
 
-            # Handle leftover stub at beginning - merge with previous segment
+            # Handle leftover stub at the very beginning
             if len(window) < self.config.min_length:
                 if segments:
-                    # Extend last segment backward to include stub
                     last_seg = segments[-1]
                     segments[-1] = RegimeSegment(
                         start_idx=0,
@@ -54,18 +55,17 @@ class GPCPDSegmenter:
                         start_date=prices.index[0],
                         end_date=last_seg.end_date
                     )
-                elif current_end >= 0:
-                    # No segments yet, create one covering the stub
+                elif t1 >= 0:
                     segments.append(RegimeSegment(
                         start_idx=0,
-                        end_idx=current_end,
+                        end_idx=t1,
                         severity=0.0,
                         start_date=prices.index[0],
-                        end_date=prices.index[current_end]
+                        end_date=prices.index[t1]
                     ))
                 break
 
-            # Detect change-point in window
+            # Detect change-point in window ending at t (Algorithm 1)
             x = torch.arange(len(window)).float().unsqueeze(-1)
             y = torch.tensor(window.values).float()
 
@@ -75,54 +75,68 @@ class GPCPDSegmenter:
             )
             severity = self.fitter.compute_severity(log_mll_M, log_mll_C)
 
+            committed_cp = False
+
             if severity >= self.config.threshold:
-                # Change-point detected!
                 t_cp_absolute = window_start + round(t_cp_relative)
 
-                # Validate CP creates valid regimes on both sides
-                regime_length = current_end - t_cp_absolute + 1
+                right_length = t1 - t_cp_absolute + 1
                 left_length = t_cp_absolute - window_start
 
-                if (regime_length >= self.config.min_length and
+                if (right_length >= self.config.min_length and
                     left_length >= self.config.min_length):
-                    # Valid CP - clamp to max_length
-                    regime_length = min(self.config.max_length, regime_length)
-                    start_idx = current_end - regime_length + 1
+
+                    # Clamp to max_length if CP-generated regime is too long
+                    if right_length > self.config.max_length:
+                        t_cp_absolute = t1 - self.config.max_length + 1
+                        right_length = self.config.max_length
 
                     segments.append(RegimeSegment(
-                        start_idx=start_idx,
-                        end_idx=current_end,
+                        start_idx=t_cp_absolute,
+                        end_idx=t1,
                         severity=severity,
-                        start_date=prices.index[start_idx],
-                        end_date=prices.index[current_end]
+                        start_date=prices.index[t_cp_absolute],
+                        end_date=prices.index[t1]
                     ))
-                    current_end = start_idx - 1
-                else:
-                    # CP too close to edge, treat as no CP
-                    regime_len = min(self.config.max_length, current_end - window_start + 1)
-                    segments.append(RegimeSegment(
-                        start_idx=current_end - regime_len + 1,
-                        end_idx=current_end,
-                        severity=severity,
-                        start_date=prices.index[current_end - regime_len + 1],
-                        end_date=prices.index[current_end]
-                    ))
-                    current_end -= regime_len
-            else:
-                # No change-point detected - jump by max_length
-                regime_len = min(self.config.max_length, current_end - window_start + 1)
 
-                if regime_len >= self.config.min_length:
+                    # Reset for next regime (Algorithm 1 lines 10-11)
+                    t1 = t_cp_absolute - 1
+                    t = t1
+                    committed_cp = True
+
+            if committed_cp:
+                continue
+
+            # No change-point detected: move back by one step (Algorithm 1 line 13)
+            t -= 1
+
+            # Prevent regime from exceeding max_length (Algorithm 1 line 14)
+            if t >= 0 and (t1 - t + 1) > self.config.max_length:
+                t = t1 - self.config.max_length + 1
+
+            # If we've stepped past the start, commit remaining data
+            if t < 0:
+                if t1 >= 0:
                     segments.append(RegimeSegment(
-                        start_idx=current_end - regime_len + 1,
-                        end_idx=current_end,
+                        start_idx=0,
+                        end_idx=t1,
                         severity=severity,
-                        start_date=prices.index[current_end - regime_len + 1],
-                        end_date=prices.index[current_end]
+                        start_date=prices.index[0],
+                        end_date=prices.index[t1]
                     ))
-                    current_end -= regime_len
-                else:
-                    current_end -= 1
+                break
+
+            # Commit regime once it reaches max_length (Algorithm 1 lines 17-20)
+            if (t1 - t + 1) == self.config.max_length:
+                segments.append(RegimeSegment(
+                    start_idx=t,
+                    end_idx=t1,
+                    severity=severity,
+                    start_date=prices.index[t],
+                    end_date=prices.index[t1]
+                ))
+                t1 = t - 1
+                t = t1
 
         # Reverse (built backward)
         segments.reverse()

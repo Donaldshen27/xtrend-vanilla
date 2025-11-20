@@ -91,6 +91,7 @@ class XTrendDataset(Dataset):
         cpd_config: Optional[CPDConfig] = None,
         seed: Optional[int] = None,
         cpd_cache_dir: Optional[str] = None,
+        allow_future_regimes: bool = False,
     ):
         """
         Args:
@@ -105,6 +106,9 @@ class XTrendDataset(Dataset):
             cpd_config: Optional CPDConfig override
             seed: Optional RNG seed for deterministic sampling
             cpd_cache_dir: Optional directory for caching CPD regimes
+            allow_future_regimes: If True, allow context regimes that end after
+                the target date (paper-approved for training); keep False for
+                validation/backtesting to preserve causality.
         """
         self.prices = prices
         self.dates = prices.index
@@ -118,10 +122,9 @@ class XTrendDataset(Dataset):
         self.seed = seed
         self._fallback_warned = False
         self.cpd_cache_dir = Path(cpd_cache_dir).expanduser() if cpd_cache_dir else None
+        self.allow_future_regimes = allow_future_regimes
         if self.cpd_cache_dir:
             self.cpd_cache_dir.mkdir(parents=True, exist_ok=True)
-        # Track whether we've already reported falling back to alternate cache names
-        self._cache_fallback_notice = False
         # Pre-compute date -> index map for reindexing cached regimes
         self._date_to_idx = {pd.Timestamp(date): idx for idx, date in enumerate(self.dates)}
         # Map each symbol to its first real observation index (listing offset)
@@ -211,21 +214,12 @@ class XTrendDataset(Dataset):
                 cache_candidates = []
                 if cache_path:
                     cache_candidates.append(cache_path)
-                alternate_cache = self._find_alternate_cache(symbol, cache_path)
-                if alternate_cache:
-                    cache_candidates.append(alternate_cache)
 
                 cached_payload = None
                 for candidate in cache_candidates:
                     if candidate and candidate.exists():
                         cached_payload = self._load_cached_regimes(candidate, symbol)
                         if cached_payload is not None:
-                            if cache_path and candidate != cache_path and not self._cache_fallback_notice:
-                                warnings.warn(
-                                    "CPD cache file span does not match dataset window. "
-                                    f"Using alternate cache '{candidate.name}' for symbol {symbol}."
-                                )
-                                self._cache_fallback_notice = True
                             break
 
                 if cached_payload is not None:
@@ -385,23 +379,6 @@ class XTrendDataset(Dataset):
         filename = f"{symbol}_{token}.pkl"
         return self.cpd_cache_dir / filename
 
-    def _find_alternate_cache(self, symbol: str, primary: Optional[Path]) -> Optional[Path]:
-        """Locate an existing cache file that matches hyperparams but not span."""
-        if not self.cpd_cache_dir:
-            return None
-        cfg = self.cpd_config
-        pattern = (
-            f"{symbol}_*_lb{cfg.lookback}_"
-            f"th{cfg.threshold:.2f}_"
-            f"min{cfg.min_length}_max{cfg.max_length}.pkl"
-        )
-        matches = sorted(self.cpd_cache_dir.glob(pattern))
-        for candidate in matches:
-            if primary and candidate.resolve() == primary.resolve():
-                continue
-            return candidate
-        return None
-
     def _load_cached_regimes(self, path: Path, symbol: str):
         """Load cached regimes for a symbol."""
         try:
@@ -538,6 +515,7 @@ class XTrendDataset(Dataset):
                 seed=self.seed,
                 exclude_symbols=exclude,
                 listing_offsets=self.listing_offsets,
+                allow_future_regimes=self.allow_future_regimes,
             )
         if method == "time_equivalent":
             return sample_time_equivalent(
@@ -911,7 +889,7 @@ def main():
         max_length=args.cpd_max_length
     )
 
-    dataset_kwargs = dict(
+    base_dataset_kwargs = dict(
         symbols=symbols,
         target_len=args.target_len,
         context_size=args.context_size,
@@ -921,12 +899,20 @@ def main():
         min_history=args.min_history,
         cpd_config=cpd_config,
         seed=args.context_seed,
-        cpd_cache_dir=args.cpd_cache_dir if args.cpd_cache_dir else None
+        cpd_cache_dir=args.cpd_cache_dir if args.cpd_cache_dir else None,
     )
 
     print("\nCreating datasets with episodic context sampling...")
-    train_dataset = XTrendDataset(train_prices, **dataset_kwargs)
-    val_dataset = XTrendDataset(val_prices, **dataset_kwargs)
+    train_dataset = XTrendDataset(
+        train_prices,
+        allow_future_regimes=True,  # paper-approved hindsight for training
+        **base_dataset_kwargs,
+    )
+    val_dataset = XTrendDataset(
+        val_prices,
+        allow_future_regimes=False,  # strict causality for validation/backtests
+        **base_dataset_kwargs,
+    )
 
     train_loader = DataLoader(
         train_dataset,

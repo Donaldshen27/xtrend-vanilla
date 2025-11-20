@@ -324,6 +324,22 @@ def main():
         help='End date (YYYY-MM-DD) - paper uses 2023'
     )
     parser.add_argument(
+        '--rolling-start',
+        default=None,
+        help='Optional: start of rolling end-date range (YYYY-MM-DD). If set, generates caches for multiple end dates.'
+    )
+    parser.add_argument(
+        '--rolling-end',
+        default=None,
+        help='Optional: end of rolling end-date range (YYYY-MM-DD). Used only when --rolling-start is set.'
+    )
+    parser.add_argument(
+        '--rolling-step-days',
+        type=int,
+        default=90,
+        help='Step size in days between rolling end dates (default: 90). Used only when --rolling-start is set.'
+    )
+    parser.add_argument(
         '--lookback',
         type=int,
         default=21,
@@ -366,19 +382,51 @@ def main():
 
     args = parser.parse_args()
 
-    batch_generate_cpd_cache(
-        data_path=args.data_path,
-        cache_dir=args.cache_dir,
-        start_date=args.start,
-        end_date=args.end,
-        lookback=args.lookback,
-        threshold=args.threshold,
-        min_length=args.min_length,
-        max_length=args.max_length,
-        overwrite=args.overwrite,
-        symbols=args.symbols,
-        workers=args.workers,
-    )
+    # Rolling mode: generate caches at multiple end dates
+    if args.rolling_start:
+        if not args.rolling_end:
+            raise ValueError("--rolling-end must be provided when --rolling-start is set")
+        rolling_dates = pd.date_range(
+            start=args.rolling_start,
+            end=args.rolling_end,
+            freq=pd.DateOffset(days=args.rolling_step_days)
+        )
+        if rolling_dates[-1] != pd.Timestamp(args.rolling_end):
+            # Ensure inclusive end even if step doesn't land exactly
+            rolling_dates = rolling_dates.append(pd.DatetimeIndex([pd.Timestamp(args.rolling_end)]))
+
+        print(f"\nRolling generation: {len(rolling_dates)} end dates from {rolling_dates[0].date()} to {rolling_dates[-1].date()} (step {args.rolling_step_days} days)\n")
+
+        for idx, end_dt in enumerate(rolling_dates):
+            end_str = end_dt.strftime('%Y-%m-%d')
+            print(f"=== [{idx+1}/{len(rolling_dates)}] Generating caches up to {end_str} ===")
+            batch_generate_cpd_cache(
+                data_path=args.data_path,
+                cache_dir=args.cache_dir,
+                start_date=args.start,
+                end_date=end_str,
+                lookback=args.lookback,
+                threshold=args.threshold,
+                min_length=args.min_length,
+                max_length=args.max_length,
+                overwrite=args.overwrite,
+                symbols=args.symbols,
+                workers=args.workers,
+            )
+    else:
+        batch_generate_cpd_cache(
+            data_path=args.data_path,
+            cache_dir=args.cache_dir,
+            start_date=args.start,
+            end_date=args.end,
+            lookback=args.lookback,
+            threshold=args.threshold,
+            min_length=args.min_length,
+            max_length=args.max_length,
+            overwrite=args.overwrite,
+            symbols=args.symbols,
+            workers=args.workers,
+        )
 
 
 if __name__ == '__main__':

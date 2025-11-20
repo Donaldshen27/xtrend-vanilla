@@ -242,6 +242,7 @@ def sample_cpd_segmented(
     seed: Optional[int] = None,
     exclude_symbols: Optional[List[str]] = None,
     listing_offsets: Optional[Dict[str, int]] = None,
+    allow_future_regimes: bool = False,
 ) -> ContextBatch:
     """Sample C regime sequences from CPD segmentation (Primary method).
 
@@ -261,6 +262,8 @@ def sample_cpd_segmented(
         exclude_symbols: Symbols to exclude (for zero-shot)
         listing_offsets: Optional map of symbol -> first valid index. Regimes
             starting before the listing offset are ignored.
+        allow_future_regimes: Permit regimes that end after the target date
+            (paper-approved for training). Keep False for validation/backtests.
 
     Returns:
         ContextBatch with C regime sequences
@@ -290,8 +293,8 @@ def sample_cpd_segmented(
         listing_offset = listing_offsets.get(symbol, 0) if listing_offsets else 0
 
         for regime in regime_segs.segments:
-            # Check causality: regime must end before target
-            if regime.end_date >= target_timestamp:
+            # Check causality: regime must end before target unless explicitly allowed
+            if (not allow_future_regimes) and regime.end_date >= target_timestamp:
                 continue
             if regime.start_idx < listing_offset:
                 continue

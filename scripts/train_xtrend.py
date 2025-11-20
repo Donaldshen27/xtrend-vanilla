@@ -811,6 +811,8 @@ def main():
                        help='Model variant to train')
     parser.add_argument('--data-path', type=str, default='data/bloomberg/processed',
                        help='Path to Bloomberg parquet files')
+    parser.add_argument('--train-cutoff', type=str, default='2021-12-31',
+                       help='Inclusive train end date; validation starts from this date')
     parser.add_argument('--epochs', type=int, default=50,
                        help='Number of training epochs')
     parser.add_argument('--batch-size', type=int, default=64,
@@ -869,7 +871,7 @@ def main():
     print(f"Loaded prices: {prices.shape}")
 
     # Train/val split (time-based)
-    train_cutoff = '2021-12-31'
+    train_cutoff = args.train_cutoff
     train_prices = prices.loc[:train_cutoff]
     val_prices = prices.loc[train_cutoff:]
 

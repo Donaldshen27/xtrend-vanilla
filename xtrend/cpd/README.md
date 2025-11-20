@@ -27,7 +27,8 @@ uv run python scripts/batch_generate_cpd_cache.py \
   --start 2023-12-30 \            # window start for this split
   --rolling-start 2023-12-30 \     # first cutoff
   --rolling-end   2025-11-15 \     # last cutoff
-  --rolling-step-days 30           # monthly cutoffs
+  --rolling-step-days 30 \
+  --threshold 0.85         # monthly cutoffs
 ```
 This emits one cache set per end-date; each set only sees data up to its cutoff, eliminating intra-window lookahead.
 

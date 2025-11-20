@@ -63,22 +63,39 @@ def _safe_severity(value):
 
 
 def parse_cache_filename(filename: str):
-    """Parse cache filename metadata produced by training script."""
+    """Parse cache filename metadata produced by training script.
+
+    Filename format: {SYMBOL}_{START_DATE}_{END_DATE}_{LENGTH}_lb{LOOKBACK}_th{THRESHOLD}_min{MIN}_max{MAX}.pkl
+
+    Note: SYMBOL may contain underscores (e.g., "LF98OAS_Index"), so we parse from the right
+    where the structure is predictable, then work backwards to find the dates.
+    """
     stem = filename.replace(".pkl", "")
     parts = stem.split("_")
     if len(parts) < 8:
         raise ValueError(f"Unrecognized cache filename format: {filename}")
-    symbol = parts[0]
-    start = pd.Timestamp(parts[1])
-    end = pd.Timestamp(parts[2])
+
+    # Parse from right to left where structure is predictable
+    max_len = int(parts[-1].replace("max", ""))
+    min_len = int(parts[-2].replace("min", ""))
+    threshold = float(parts[-3].replace("th", ""))
+    lookback = int(parts[-4].replace("lb", ""))
+
+    # Series length is before the lb/th/min/max params
     try:
-        series_len = int(parts[3])
+        series_len = int(parts[-5])
     except ValueError as exc:
         raise ValueError(f"Invalid series length in filename {filename}") from exc
-    lookback = int(parts[4].replace("lb", ""))
-    threshold = float(parts[5].replace("th", ""))
-    min_len = int(parts[6].replace("min", ""))
-    max_len = int(parts[7].replace("max", ""))
+
+    # End date is before series length (8 digits: YYYYMMDD)
+    end = pd.Timestamp(parts[-6])
+
+    # Start date is before end date (8 digits: YYYYMMDD)
+    start = pd.Timestamp(parts[-7])
+
+    # Everything before the start date is the symbol (may contain underscores)
+    symbol = "_".join(parts[:-7])
+
     return {
         "symbol": symbol,
         "start": start,

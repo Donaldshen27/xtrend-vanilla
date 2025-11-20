@@ -41,11 +41,12 @@ class GPCPDSegmenter:
         t = t1                # Scanning pointer that walks backward
 
         while t >= 0:
+            remaining_len = t1 + 1  # Unsegmented portion length
             window_start = max(0, t - self.config.lookback + 1)
             window = prices.iloc[window_start:t + 1]
 
-            # Handle leftover stub at the very beginning
-            if len(window) < self.config.min_length:
+            # Handle leftover stub only when the entire remaining data is too short
+            if remaining_len < self.config.min_length:
                 if segments:
                     last_seg = segments[-1]
                     segments[-1] = RegimeSegment(

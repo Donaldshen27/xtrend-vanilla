@@ -1,0 +1,1941 @@
+arXiv:2310.10500v2 [q-fin.TR] 28 Mar 2024
+
+F EW-S HOT L EARNING PATTERNS IN F INANCIAL T IME -S ERIES
+FOR T REND -F OLLOWING S TRATEGIES
+
+Samuel Kessler∗
+Oxford-Man Institute
+University of Oxford
+samuel.kessler@eng.ox.ac.uk
+
+Kieran Wood∗
+Oxford-Man Institute
+University of Oxford
+kieran.wood@eng.ox.ac.uk
+Stephen J. Roberts
+Oxford-Man Institute
+University of Oxford
+stephen.roberts@eng.ox.ac.uk
+
+Stefan Zohren
+Oxford-Man Institute
+University of Oxford
+stefan.zohren@eng.ox.ac.uk
+
+March 29, 2024
+
+A BSTRACT
+Forecasting models for systematic trading strategies do not adapt quickly when ﬁnancial market
+conditions rapidly change, as was seen in the advent of the COVID-19 pandemic in 2020, causing
+many forecasting models to take loss-making positions. To deal with such situations, we propose a
+novel time-series trend-following forecaster that can quickly adapt to new market conditions, referred
+to as regimes. We leverage recent developments from the deep learning community and use few-shot
+learning. We propose the Cross Attentive Time-Series Trend Network – X-Trend – which takes
+positions attending over a context set of ﬁnancial time-series regimes. X-Trend transfers trends
+from similar patterns in the context set to make forecasts, then subsequently takes positions for a
+new distinct target regime. By quickly adapting to new ﬁnancial regimes, X-Trend increases Sharpe
+ratio by 189% over a neural forecaster and 10-fold over a conventional Time-series Momentum
+strategy during the turbulent market period from 2018 to 2023. Our strategy recovers twice as quickly
+from the COVID-19 drawdown compared to the neural-forecaster. X-Trend can also take zero-shot
+positions on novel unseen ﬁnancial assets obtaining a 5-fold Sharpe ratio increase versus a neural
+time-series trend forecaster over the same period. Furthermore, the cross-attention mechanism allows
+us to interpret the relationship between forecasts and patterns in the context set.
+Keywords Trend-Following · Time-Series Momentum · Few-Shot Learning · Deep Learning · Machine Learning ·
+Transfer Learning · Change-point Detection · Quantitative Finance · Portfolio Construction
+
+1
+
+Introduction
+
+When ﬁnancial market conditions change the forecasting models that are used to take positions in the markets perform
+very poorly [1, 2]. The recent success of deep learning for learning representations from data has translated into better
+ﬁnancial forecasting models [3]. However deep learning models also rely on large stationary datasets for representation
+learning. Financial markets can be highly non-stationary due to changing market conditions. When a ﬁnancial market
+enters a new regime, augmenting the inputs with indicators of the time and severity of regime change improves
+returns [4]. This ﬁnding is important since it shows that there is a beneﬁt to training deep learning models that have
+additional supervision about when regimes change. Furthermore, it raises an important question: can we selectively use
+historical patterns to transfer knowledge of the past to make forecasts for new regimes and new markets?
+*
+
+Equal contribution.
+
+Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies
+
+1) Different Assets
+
+4)
+
+3)
+
+5)
+
+Cross
+Attention
+
+6)
+PTP
++
+
+2) Contexts
+
+Target
+
+Figure 1: An overview of the X-Trend few-shot learning trend-following model. 1) Each asset is segmented into
+regimes using a change-point detection algorithm. 2) The context set is constructed by randomly sampling regimes from
+different assets. The objective is to produce long/short positions given the target sequence while respecting causality
+with the context set. 3) Our X-Trend model uses a cross-attention layer for the target to leverage patterns in the context
+set. 4) The model produces a distribution over next-day returns. 5) The model outputs positions using Predictive
+probability density function To traded Position module (PTP). 6) We train our model by jointly optimizing a Sharpe
+ratio loss and negative log-likelihood.
+In recent years it has been observed, that the risk-adjusted returns of conventional Time-series Momentum (TSMOM)
+models [5], which exploit trends in ﬁnancial time-series, have deteriorated by 874% from 2018 to 2023 compared to
+the period from 1995 to 2000. This can potentially be attributed to a concept known as ‘factor crowding’ [6], where
+arbitrageurs trade the same assets based on similar factors. This causes market inefﬁciencies to quickly disappear and
+can increase the risk of liquidity-driven tail events [7]. To mitigate this, one alternative has been to explore new assets
+where we typically do not have sufﬁcient data for deep learning approaches.
+In deep learning, quick adaptation to new data or few-shot learning has seen recent advances in computer vision
+[8, 9, 10]. Few-shot learning involves training neural networks (NNs) such that they are able to adapt and learn from
+minimal data. Few-shot learners are tested on completely unseen classes of images using a few to no examples or are
+required to solve unseen reinforcement learning environments [11, 12, 13]. Few-shot learners have the desirable quality
+of being able to adapt and learn from very few data points. This is advantageous for a systematic trading strategy,
+allowing it to adapt quickly to new ﬁnancial regimes or new markets. Broadly, we can categorize the market regimes,
+which systematic strategies aim to exploit, as trending or mean-reverting. Mean-reversion is a market phenomenon
+whereby, under certain circumstances, the price has a tendency to return its long-term mean [14]. A detailed study of
+the trending and mean-reverting ﬁnancial market anomalies can be found in [15].
+In this work, we leverage advances in few-shot learning and time-series momentum strategies to develop a model that
+can make predictions in new market regimes and unseen markets. In practice, our experiments backtest on continuous
+futures contracts of various asset classes: equities, foreign exchange, commodities and ﬁxed income. Our model obtains
+signiﬁcantly higher risk-adjusted returns in terms of Sharpe ratio [16], a measure of returns per unit volatility. Our
+model is able to learn transferable patterns, then subsequently learn to take positions in markets or regimes distinct
+from those used for training. The idea of universal patterns in ﬁnancial markets, which are transferable, is motivated by
+the works [17, 18, 19].
+Our model uses a cross-attention mechanism over a context-set [20, 21]. Attention mechanisms [22] have been shown
+to improve returns by attending over an asset’s history [19], this work generalizes this ﬁnding by extending the temporal
+attention mechanism over other assets. This enables our model to transfer knowledge from the context set to enable
+better predictions for a new regime or new market with little data. Different regimes from ﬁnancial assets are segmented
+using change-point detection methods [23, 24]. Additionally, the attention maps provide a degree of interpretability in
+the resulting predictions [25, 19]. We also use the latest insights from deep time-series momentum strategies to train our
+model to produce positive returns over our baselines [3]. We call our method the Cross Attentive Time-Series Trend
+Network or X-Trend for short. The code is available at https://github.com/kieranjwood/x-trend.
+2
+
+Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies
+
+We summarize our contributions as follows:
+• We leverage few-shot learning, and change-point detection to develop an agent which is able to produce returns
+in futures markets with minimal data. Our X-Trend model is able to successfully respond to “momentum
+crashes” [1], and “momentum turning points” [2]. We improve Sharpe ratio by 189% in comparison to the
+benchmark neural forecaster over 2018 to 2023, an extremely turbulent period in various ﬁnancial markets.
+Our X-Trend strategy recovers from the initial COVID-19 drawdown twice as quickly.
+• X-Trend learns to make predictions in challenging, low-resource, zero-shot settings where the model has never
+seen a ﬁnancial asset during training. It improves over the loss-making neural forecaster to achieve an average
+Sharpe of 0.47 over the period 2018 to 2023. This turbulent period is particularly challenging for unseen
+ﬁnancial assets.
+• X-Trend makes interpretable predictions. It is able to learn relationships between similar assets using an
+interpretable cross-attention mechanism over a context set of different assets. For a given target sequence,
+a similarity score with patterns in the context set via cross-attention can be visualized. Additionally, by
+outputting a forecast as an auxiliary output step, we reveal the relationship between optimal trading signal and
+forecast.
+
+2
+
+Preliminaries
+(i)
+
+Let us denote a time-series p1:t of daily close prices, where i denotes a particular asset from a basket of assets i ∈ I
+(i)
+and t denotes a time index t ∈ 1,    , T  where T is the ﬁnal observation for the asset. We work with returns r1:t ,
+which linearly de-trends the price series:
+(i)
+
+(i)
+
+rt−t′ ,t =
+
+(i)
+
+pt − pt−t′
+(i)
+
+pt−t′
+
+(1)
+
+,
+(i)
+
+(i)
+
+where t′ is the number of days we calculate returns over and for brevity we use rt to denote rt−1,t .
+(i)
+
+Our objective is to trade a position zt ∈ [−1, 1] which we hold for the next day t + 1 conditioned on a target sequence
+(i)
+(i)
+x−lt :t of the lt last days, where xt ∈ X is a vector of X  factors measuring trends at different timescales or the
+relationship between trends at different timescales. These factors are constructed for time t using returns data and price
+data, which we elaborate on in Section 2.2 and Section 2.3. We aim to choose positions such that we maximize portfolio
+returns:
+
+
+(i)
+N
+ z (i)
+zt−1 
+1  (i)
+ t
+(i)
+(i) σtgt (i)
+Port.
+(i)
+Rt+1 =
+(2)
+Rt+1 , where Rt+1 = zt
+r
+− C σtgt  (i) − (i)  ,
+(i) t+1
+σ
+
+N
+σ
+σ
+i=1
+
+t
+
+t
+
+t−1
+
+for each of the assets i ∈ I where N = I assets and C is the transaction cost. We use volatility targeting [5, 26, 27],
+(i)
+(i)
+which introduces a leverage factor σtgt σt , where we normalize our holdings by the ex-ante volatility, σt , then
+(i)
+scale by the annual target volatility σtgt . Aligning our work with the literature [5, 26], σt is calculated using an
+exponentially weighted moving standard deviation of returns over the span r−60:t , where the contribution has decreased
+to zero by 60 days in the past. For this paper we set C (i) = 0 rather than assuming a cost for each asset, focusing
+on pure predictive power of our model. The volatility targeting approach to portfolio construction ensures that each
+asset contributes approximately equal risk to the portfolio1 . As such, we perform regression to estimate the probability
+(i)
+σ
+distribution of volatility scaled next-day returns, tgt
+(i) rt+1 ∈ R.
+(i)
+
+σt
+
+2.1
+
+Episodic Learning
+
+We use episodic learning [8] which trains models in the same way as they are used for testing; models are trained
+to produce few-shot and zero-shot predictions. Traditional deep learning puts data from all assets together and is
+trained using mini-batch stochastic gradient descent [28, 29]. In episodic learning, we want to make forecasts given a
+sequence’s history for a speciﬁc asset, and leverage sequences from other assets for additional non-parametric similarity
+learning.
+1
+We assume a diagonal covariance, which is a reasonable assumption outside of the tail for the basket of futures contracts we
+consider in this paper, which is a typical basket for trend-following strategies.
+
+3
+
+Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies
+
+(i)
+
+(i)
+
+Our learner selects a position given target: xt−lt +1:t , which we shorten to x−lt :t for brevity, and where i belongs to our
+C
+
+(c)
+test set Its of assets. Additionally, the learner leverages a context set of prices C = x−lc :tc
+where c belongs to
+c=1
+
+our training set of assets Itr , lc is the length of each time-series in the context set and C = C is the total number of
+contexts in the context set. In all circumstances, the context sets are time-series that have occurred before the time-series
+in the target: tc < t for all c in the context set so that our predictions are causal. Throughout the paper we will work
+with two distinct problem scenarios:
+• Few-shot: where the context set can contain the same asset as the target (but in the past) Itr  Its = I.
+• Zero-shot: where the target set asset (at test time) is not contained in the context set Itr  Its = ∅.
+(i)
+
+We sample a target time-series, x−lt :t and we sample an associated context set C per target point in the mini-batch. As
+opposed to our target problem, we also include the volatility scaled next-day returns as inputs in the context set, denoting
+(c)
+the combined inputs as ξ−lc :t . We describe how we construct our context sets for the ﬁnancial assets in Section 3.2.
+2.2
+
+Classical Momentum Approaches
+
+Time-series Momentum (TSMOM) strategies [5], or trend-following strategies, are based on the idea that strong price
+trends have a tendency to persist. The phenomena of trend-following has been observed historically for more than a
+century2 , outperforming a simple buy-and-hold Long strategy [30]. TSMOM strategies aim to forecast trends and then
+map them to a trading signal, or position. For instance, we can calculate returns over the past year (252 trading days),
+(i)
+(i)
+rt−252,t and map this to a position zt :
+(i)
+
+(i)
+
+zt = sgn(rt−252,t ),
+
+(3)
+
+where sgn(·) is the sign function, with +1 corresponding to a full long position and −1 a full short position [5]. The
+(i)
+Long strategy takes a full long position at each time-step: zt = 1.
+We employ volatility scaling for portfolio construction Eq. (2). This approach to portfolio construction is often used in
+practice by Commodity Trading Advisors (CTAs), where trend-following is a major component of their overall strategy.
+While this TSMOM approach has proven to be successful over time [30], the 1-year momentum indicator particularly
+suffers during periods where market conditions change rapidly. We call these regime changes throughout this paper
+(also referred to as momentum crashes [1]). An attempt to mitigate regime changes is to combine weighted signals at
+different timescales, for example, 1-month (21-day), 3-month (63-day), half-year (126-day) and 12-month momentum,
+
+(i)
+(i)
+zt = t′ ∈21,63,126,252 wt′ sgn(rt−t′ ,t ), where wt′ ∈ [0, 1] represents the weighting of each respective factor.
+MACD (Moving Average Convergence Divergence) factors compare exponentially weighted signals at two different
+timescales [31]. These popular momentum indicators aim to balance the trade-off between capturing trends and
+responding to potential regime changes:
+
+
+(i)
+MACD p1:t , S, L =
+
+(i)
+
+m
+ t
+
+(i)
+std m−252:t
+
+
+
+
+(i)
+(i)
+EWMA p1:t , S − EWMA p1:t , L
+
+
+,
+where mt =
+(i)
+std p−60:t
+
+(4a)
+
+(4b)
+
+where EWMA(·)
+ is an
+ exponentially weighted moving average. The inputs are a short timescale S, with
+ function
+half-life of log 12 log 1 − S1 and a long timescale L, deﬁned similarly. The MACD signal indicates buy if > 0 and
+sell if < 0. The magnitude provides a measure of conviction or signal strength. It is common to blend multiple MACD
+indicators at different timescales with a typical choice being (S, L) ∈ (8, 24), (16, 28), (32, 96) [31]. Funds typically
+convert the MACD signal to a position via response function: y → y exp(−y 2 4)089 [31].
+2.3
+
+Deep-learning Momentum Approaches
+
+In ﬁnancial markets, we often observe different trends and mean-reversions, which we can also think of as a collection
+of shorter-term trends, occurring concurrently at multiple timescales. Furthermore, the added complexity of regime
+2
+
+It should be noted that returns have started to suffer since the introduction of electronic trading [4] this century.
+
+4
+
+Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies
+
+change means that it is a daunting task to successfully blend various trading signals. This motivated Deep Momentum
+Networks (DMNs), as a solution to such a complex forecasting problem [3, 19, 4, 32], which have been shown to
+outperform TSMOM in terms of risk-adjusted returns [3].
+We opt to use factors that are commonly used in trend-following strategies [31, 30, 3]. Concretely, we use returns
+aggregated and normalized over different time scales:
+√
+(i)
+(i)
+(i)
+t′ ,
+(5)
+r̂t−t′ ,t = rt−t′ ,t σt
+and include MACD indicators:
+
+ 
+
+
+
+(i)
+(i)
+(i)
+xt = Concat r̂t−t′ ,t  t′ ∈ 1, 21, 63, 126, 252 , MACD p1:t , S, L  ∀ (S, L) 
+
+(6)
+
+The DMN framework simultaneously learns asset price trends and position sizes. The position sizes are estimated using
+a neural network:
+
+
+
+
+(i)
+(i)
+(i)
+z−lt :t = DMN x−lt :t = (tanh ◦ Linear ◦ g) x−lt :t ,
+(7)
+
+where g : X lt → Rdh is a neural network followed by a linear mapping, Linear : Rdh → R, and tanh activation
+(i)
+function such that traded position zt ∈ (−1, 1). The neural network hidden state dimension is denoted dh .
+
+The primary innovation of DMNs, as introduced in [3], was to output traded positions and directly optimize the Sharpe
+ratio: a risk-adjusted return metric measuring returns per unit volatility. Typically most fund managers or CTAs will
+have a predeﬁned risk tolerance and aim to maximize returns given this constraint3 . With the aim to optimize neural
+network parameters θ, the Sharpe loss function is deﬁned as:
+
+
+
+(i)
+σtgt (i)
+r
+DMN
+x
+mean
+Ω
+(i)
+t+1
+−lt :t
+√
+σt
+DMN(·)
+
+(8)
+LSharpe (θ) = − 252
+
+ ,
+(i)
+(i)
+σ
+stdΩ tgt
+r
+DMN
+x
+(i)
+t+1
+−lt :t
+σt
+
+whereΩ is a batch of Ω pairs (i, t) ∈ I × T . In practice, when training the model, we select b sequences such that
+Ω = i × ((t − lt + ls + 1) : t)i ∈ I, t ∈ T , with warm-up period ls ≤ lt . That is, our loss function ignores the
+ﬁrst ls predictions for each sampled sequence.
+The Long Short-Term Memory cell (LSTM) [33] is a popular Recurrent Neural Network (RNN) tailored to modeling
+(i)
+sequences and is the primary DMN component [3, 4]. In addition to the output for each time-step ht ∈ (−1, 1)dh , the
+(i)
+LSTM maintains ct ∈ Rdh , a cell state, which stores longer-term information:
+(i)
+
+(i)
+
+(i)
+
+(i)
+
+(i)
+
+(ht , ct ) = LSTM(xt , ht−1 , ct−1 )
+
+(9)
+
+(i)
+
+The LSTM modulates information through a series of gates, clearing ct when necessary, such as during regime change,
+(i)
+(i) (i)
+and maintains ht as a localized summary of the sequence. The initialization (h0 , c0 ) can be speciﬁc per contract,
+and we provide details of our implementation Section 3.1.
+2.4
+
+Attention
+
+The attention mechanism computes a weighted average of elements where the weights depend on an input query and the
+elements’ keys [22]. It dynamically decides on which input elements to focus on or “attend” to. Speciﬁcally, it computes
+a similarity between the query vector and key vectors. These vectors can either be model inputs, some deep-learning
+hidden state, or, in the case of our work, a hidden state summarising a sequence. If we have a query vector q ∈ Rdq
+and we want to compute the relative importance of each key in K = k1 ,    , kC , we calculate soft weights with a
+softmax function:
+
+
+1
+α(q, k)
+√
+⟨W
+q,
+W
+k⟩
+,
+(10)
+pq (k) = 
+,
+α(q,
+k)
+=
+exp
+q
+k
+′
+datt
+k′ ∈K α(q, k )
+
+with learnable weight matrices W(·) ∈ Rdatt ×d(·) and attention dimension datt . The inner-product ⟨·, ·⟩ is the mechanism
+used to compute similarity. The primary beneﬁt of attention is that it provides a direct connection with all of the keys
+
+3
+The loss function can easily be tailored to instead use drawdown, VaR (Value at Risk), or even some combination of these,
+instead of volatility as the risk measure.
+
+5
+
+Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies
+
+and, furthermore, these weights are interpretable. We then use each weight pq (·) to scale the values V = v1 ,    , vC ,
+where each value has a corresponding key, and aggregate as:
+Att(q, K, V ) =
+
+C
+
+
+(11)
+
+pq (kj ) Wv vj 
+
+j=1
+
+We elaborate on the speciﬁc details of our implementation in Section 3.3. We can generalize equation 11 to multiple
+parallel attention heads to make the model bigger, allowing the model to capture representations for different patterns
+and time-scales. The cross-attention mechanism in X-Trend uses 4 heads.
+
+3
+
+Cross-Attentive Time-Series Momentum Forecaster
+
+3.1
+
+Sequence Representations and Baseline Neural Forecaster
+
+We want to create sequence summaries, of sequence length l, with a learnable function Ξ : X l × S → Rdh , where dh is
+(i)
+our hidden dimension. Our representation is created to summarise not just input sequences x−lt :t ∈ X l , but also side
+information s(i) ∈ S, namely the category (ticker) of the futures contracts. We include this category because we know
+the dynamics of different contracts can vary signiﬁcantly; for example crude oil compared to the 5-year treasury bond.
+(i)
+For each time-step, and each asset, we input features xt ∈ X , as deﬁned in Eq. (6).
+We encode side information s(i) , with an entity embedding: a learnable mapping of each category into Rdh , which
+can automatically learn to group similar assets in the embedding space [34]. We use a feedforward (FFN) network to
+fuse the entity embeddings and time-series representations. Throughout our paper we use ELU (Exponential Linear
+Unit) [35] activations which are continuously differentiable everywhere and avoid dead neurons (which are completely
+deactivated). We indicate the ability to optionally include static information via embeddings in blue:
+FFN(ht , s) = Linear3 ◦ ELU (Linear1 (ht )+Linear2 (Embedding(s)) ,
+
+(12a)
+
+where Linear(·) (·) is a learnable linear transformation into Rdh and ht is a vector which can either be a hidden-state or
+a vector. Additionally, we use the Variable Selection Network (VSN) [3], which weights out different lagged normalized
+returns and MACD features.
+We associate a learnable nonlinear function FFNj : R → Rdh with the j-th element of xt , and scale by the associated
+learnable weight wt,j , of wt ∈ RX  :
+(13a)
+
+wt = Softmax ◦ FFN(xt , s)
+VSN(xt ) =
+
+X 
+
+
+(13b)
+
+wt,j FFNj (xt,j ),
+
+j=1
+
+where the j-th element of the softmax is deﬁned as: Softmax(x)j = exj 
+
+X 
+
+k=1 e
+
+xk
+
+.
+
+Our model consists both of an encoder and a decoder. It is important to note that in the decoder we also include the
+(i)
+output of the encoder, y−lt :t ∈ Y lt , as an input, where Y ⊆ Rdh (Section 3.4). Our encoder sequence representations,
+Ξ(·, ·), can be summarised as:
+x′t = VSN(xt , s),
+(ht , ct ) = LSTM(x′t , ht−1 , ct−1 ),
+at = LayerNorm(ht + x′t )
+Ξ(x−l:t , s) = LayerNorm (FFN2 (at , s) + at ) 
+
+(14a)
+(14b)
+(14c)
+(14d)
+
+The LSTM initial state is learnable and speciﬁc to each contract, setting (h0 , c0 ) = (FFN3 ◦ Embedding(s), FFN4 ◦
+Embedding(s)). The skip connections, in equation 19c and equation 19d, allow for the respective components to be
+suppressed, enabling the model to be as complex as necessary. See Fig. 4 for an overview of our model.
+The Baseline neural forecaster which we compare to uses Ξ(·, ·) as a model i.e. g(·) from equation 7. The baseline
+architecture consists of only the decoder. The X-trend model adds an encoder and the cross-attentive steps.
+6
+
+Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies
+
+3.2
+
+Context Set Construction
+
+When backtesting, we randomly sample a context set of size C sequences from the past4 to enforce causality at the
+time of prediction for our target problem. We explore three different approaches to constructing our context sequences
+and choosing the point tc at which we condition on, illustrating these in Fig. 2:
+1. Final hidden state and random sequences of xed length. We sample random sequences across time and
+assets of ﬁxed length lc and we condition on the ﬁnal hidden states of the sequences, which summarises the
+sequence.
+2. Time-equivalent hidden state. We sample random context sequences that are the same length as the target
+sequence: lc = lt . For each time-step in the target sequence, we condition on the time-equivalent hidden
+states i.e. the k-th target step attends to the k-th context steps. This allows the model to incorporate additional
+adjacent regimes by conditioning on different representations at each time-step of the target sequence.
+3. Change-point detection (CPD) segmented representations. We use a Gaussian Process change-point
+detection algorithm, detailed in Appendix A, to segment the context set into regimes. An example of this
+segmentation for the British Pound can be seen in Fig. 3. We randomly sample C change-point segmented
+sequences and condition on the ﬁnal hidden states of these change-point time-series segments. We limit to a
+maximum sequence size. We test both 21 day (1 month) and 63 day (3 month) maximum length sizes, using a
+higher CPD severity threshold for the 63 day version, calibrating a change-point threshold in both cases such
+that the average sequence length is approximately half of the maximum length.
+
+F
+Target sequence
+
+T
+
+Final hidden state
+
+Time equivalent
+
+C
+
+new
+regime
+
+CPD segmented
+
+Figure 2: An illustration of the different ways the target is able to attend to the context set. F, every hidden state in the
+target sequence is able to attend to the ﬁnal hidden states of the contexts. T, the time equivalent hidden state in the
+target is able to attend to the corresponding hidden state in the contexts. C, every hidden state in the target sequence is
+able to attend to the ﬁnal hidden state in the change-point segmented contexts. The dark arrows illustrate the context
+time-steps the 4-th target time-step attends to.
+
+Figure 3: A time-series segmented with change-point detection to create sequences for the context set. Different colours
+are different regimes. This example shows the British Pound Sterling continuous, ratio-adjusted, futures contract. Here,
+for illustrative purposes, regimes are segmented with a change-point threshold of LC (LM + LC ) ≥ 099, where LM
+is the likelihood of ﬁtting a Gaussian Process characterized by a Matérn 3/2 kernel, and LC is another characterized by
+a Change-point kernel. Details of this procedure can be found in Appendix A.
+3.3
+
+Cross Attention
+
+In order for our predictions to leverage a context set we use a cross-attention mechanism between our target sequence
+and a context set of sequences. This allows our target to attend to different sequences from different assets across
+4
+During training we do not enforce causality when we construct our context set, as the aim is to teach the model to best transfer
+patterns; however, the training set only contains information prior to the test date to ensure our model is causal at test time.
+
+7
+
+Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies
+
+time and across different regimes. The rationale is that this context set contains a much broader range of patterns
+in comparison to the near-term history of the same asset, which was successfully leveraged with attention by [19]
+(Section 6).
+We create the set of key vectors, Kt , and set of value vectors, Vt :
+
+C
+
+C
+(c)
+(c)
+Kt = Ξkey (x−lc :tc , s(c) )
+, Vt = Ξvalue (ξ−lc :tc , s(c) )
+,
+c=1
+
+(15)
+
+c=1
+
+(c)
+
+where x−lc :tc denotes context sequence without the target returns. For a given query, we calculate attention weights for
+each key (see Eq. (10)). Then adapting Eq. (11), we weight the value vectors by the attention weights and expand to
+multiple concurrent heads to increase the representational space. We leverage the context set via the following steps:
+(i)
+
+qt = Ξquery (x−lt :t , s(i) )
+
+Vt′ = FFN1 ◦ Att1 (Vt , Vt , Vt )
+(i)
+yt = LayerNorm ◦ FFN2 ◦ Att2 (qt , Kt , Vt′ )
+
+(query representation)
+
+(16)
+
+(self-attention)
+
+(17)
+
+(cross-attention)
+(18)
+′
+We illustrate this in Fig. 4. The self-attention step, which outputs the updated set of values Vt , helps to identify
+similarities between regimes within the context set.
+
+FFN
+FFN
+Cross-Attention
+FFN
+FFN
+FFN
+LSTM
+
+LSTM
+
+Temporal
+Block
+
+Temporal
+Block
+
+SelfAttention
+
+FFN
+
+VSN
+VSN
+
+Figure 4: Encoder and decoder X-Trend-G model. The FFN, VSN, Self-Attention and Cross-Attention components are
+all applied element-wise to each time-step. Sequences in the context set are mapped to representations via Ξkey (·, ·)
+(c)
+(c)
+and Ξvalue (·, ·). For the key inputs we exclude next-day returns and use x−lc :tc instead of ξ−lc :tc . Contexts are then
+(i)
+
+passed to the cross-attention as keys and values with a representation of the target sequence xt′ which we want to make
+forecasts as the query. It should be noted that we have a separate instance of keys Kt′ and values Vt′ for the query qt′ at
+each time-step t′ ∈ (t − lt + 1 : t), which we detail in Fig. 2. The decoder then takes the target sequence and the output
+(i)
+representation from the encoder, yt′ . It outputs a position for the Sharpe stream and the forecast stream, which we
+label (µt′ , σt′ ), for the maximum likelihood. Side information s(i) regarding the target asset is also passed as input to
+the decoder for few-shot learning only, not zero-shot learning. If we are not using the joint loss function, we instead
+output for the Sharpe stream after the second last FFN.
+3.4
+
+Decoder and Loss Function
+
+Similarly to our sequence representations in the encoder, Eq. (14), we summarize our target sequence in the decoder.
+(i)
+This time our sequence representation, ΞDec : X lt ×S × C → Rdh , fuses the output of the encoder, y−lt :t . Highlighting
+the additional components in magenta, our decoder representation is computed as:
+(i)
+
+(i)
+
+x′t = LayerNorm ◦ FFN1 ◦ Concat(VSN(xt , s(i) ), yt ),
+8
+
+(19a)
+
+Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies
+
+(ht , ct ) = LSTM(x′t , ht−1 , ct−1 ),
+
+(19b)
+
+at = LayerNorm(ht + x′t )
+(i)
+(i)
+ΞDec (x−lt :t , s(i) , y−lt :t ) = LayerNorm
+
+
+
+(i)
+
+(19c)
+
+
+
+(19d)
+
+FFN2 (at , s ) + at 
+
+We want to model the next-day volatility scaled return. This is a regression task where we
+
+ parameterize the predictive
+σ
+
+(i)
+
+(i)
+
+(i)
+mean via µ : X lt ×S×C → R and volatility via σ : X lt ×S×C → R+ ; the likelihood is p tgt
+,C =
+(i) rt+1  x−lt :t , s
+σt
+
+
+(i)
+(i)
+σtgt (i)
+(i)
+, C), σ(x−lt :t , s(i) , C) . Thus our loss function is to minimize the log-likelihood under a
+N
+(i) rt+1 ; µ(x−lt :t , s
+σt
+
+Gaussian distribution of future returns:
+
+1 
+log p
+LMLE (θ) = −
+Ω
+(t,i)∈Ω
+
+
+
+σtgt
+
+(i)
+(i)
+r x
+, s(i) , C
+(i) t+1 −lt :t
+σt
+
+
+
+(20)
+
+It is important to note that the Gaussianity of returns in ﬁnancial time-series is a convenient approximation, which in
+practice does not always hold, especially in the tail. However, since we are focused on optimizing the Sharpe ratio in
+this paper5 , predictive mean and volatility estimates of next-day return outputs are very useful since Sharpe is dependent
+on realized returns and volatility.
+Rather than directly optimizing Sharpe with a DMN, we propose to jointly optimize the likelihood for next-day
+predictions and the Sharpe. The Sharpe loss requires an additional neural network head, Predictive distribution (mean
+and standard deviation) To Position: head PTPG : R2 → (−1, 1). This is a single FFN followed by a tanh activation.
+Our joint loss function is:
+PTPG (·)
+(21)
+LMLE
+Joint (θ) = α LMLE (θ) + LSharpe (θ),
+PTP (·)
+
+G
+where LSharpe
+(θ) is Eq. (8) applied to the PTP outputs and α is a tunable hyperparameter to balance the two loss
+functions.
+
+As an alternative to assuming Gaussianity of returns, we can instead perform Quantile Regression (QRE). The aim
+of QRE is to learn the full probability distribution of next-day returns. QRE has proven successful for multi-step
+(i)
+(i)
+σ
+time-series regression [36]. For quantiles η ∈ H, pairs (t, i) ∈ Ω and target r̃t+1 = tgt
+(i) rt+1 , our QRE loss function is:
+σt
+
+LQRE (θ) =
+
+1
+Ω × H
+
+
+
+ 
+   (i)
+(i)
+(i)
+(i)
+(i)
+(i)
+η r̃t+1 − Qη (x−lt :t , s , C) + (1 − η) Qη (x−lt :t , s , C) − r̃t+1
+,
++
+
+Ω×H
+
++
+
+(22)
+
+where (·)+ = max(0, ·) and Q : X lt × S × C → RH is a neural network head which we replace µ(·, ·, ·) and σ(·, ·, ·)
+with. Our set of quantiles, H = 001, 005, 01, 02, 03, 04, 05, 06, 07, 08, 09, 095, 099, includes quantiles in
+the left and right tail – the market movements which typically have the largest impact on our strategy risk-adjusted
+returns. We deﬁne the joint QRE loss function, LQRE
+Joint (·) as:
+PTP (·)
+
+Q
+LQRE
+Joint (θ) = α LQRE (θ) + LSharpe (θ)
+
+(23)
+
+with the PTP for the Sharpe loss again a FFN, PTPQ : RH → (−1, 1).
+(i)
+
+Utilizing the outputs of our encoder, y−lt :t , our decoder outputs a trading signal as follows:
+(i)
+
+(i)
+
+zt = PTP ◦ ΞDec (x−lt :t , s(i) , y−lt :t )
+
+(24)
+
+We refer to the Gaussian MLE (Maximum Likelihood Estimation) variant of the architecture as X-Trend-G, the QRE
+variant as X-Trend-Q and the Sharpe loss variant as X-Trend.
+It is important to note that in the zero-shot setting we exclude the ticker-type embedding of s(i) for the target sequence.
+This is because we are trading a previously unseen asset and we have not yet seen any contract-speciﬁc dynamics.
+We do however still include this information in the context set, where the aim is to quickly identify similarities with
+previously seen contracts.
+5
+Due to the non-Gaussianity of returns observed in practice, the Sharpe ratio often may not be the best metric for measuring
+risk-adjusted returns.
+
+9
+
+Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies
+
+4
+
+Experiments
+
+The cross-attention mechanism is key to obtaining low error forecasts for few-shot learning for a toy dataset of Gaussian
+Process (GP) draws [37]. We implemented the recurrent attentive neural process [38] for this toy dataset, and we ablate
+certain components and we show that the cross-attention mechanism is key to obtaining low-error few-shot forecasts.
+This result motivates using a cross-attention for momentum. See Appendix B for further details.
+We backtest our X-Trend variants on a portfolio of 50 of the most liquid, continuous futures contracts6 , I, over the period
+from 1990 to 2023, extracted from the Pinnacle Data Corp CLC Database7 . The futures contracts we have selected are
+amongst the most liquid and typical for backtesting TSMOM strategies [5, 30, 3, 19]. To test-out-of-sample across the
+entire history, we use an expanding window approach, where we initially train on 1990 to 1995, test out-of-sample
+on the period from 1995 to 2000, expand the training window to from 1990 to 2000, then test out-of-sample on the
+subsequent 5 years and so on. We take particular note of performance over the 2020 to 2022 period, which covers the
+COVID-19 crisis, exhibiting dynamics that are signiﬁcantly different to the training set.
+For our zero-shot experiments, we randomly selected 20 of the 50 Pinnacle dataset assets as the test set, Its , leaving
+the other 30, Itr for the context set and training. Despite the fact these futures contracts had historical data available
+in reality, we constructed this experiment as an artiﬁcial zero-shot setting to provide insight into transferability to
+unseen assets. Furthermore, this low-resource setting is particularly challenging because Itr is also small at only 30
+contracts. The dataset is described in further detail in Appendix D. The details of training the neural networks are
+provided in Appendix C.
+
+5
+
+Results
+
+Figure 5: Few-shot setting cumulative strategy returns (left) and drawdown plot (right), averaged across 10 full repeats
+and an additional portfolio volatility re-scaling step to 15% volatility. We only plot drawdown of the Base Learner and
+X-Trend-Q, the primary comparison, to reduce clutter.
+5.1
+
+Few-shot Setting
+
+We plot the few-shot strategy returns over the past 10 years (2013 to 2023) in Fig. 5, which is where we start to see
+larger gains when backtesting our X-Trend strategy, in comparison to the baseline. In particular, we draw attention
+to the results over the past ﬁve years (2018 to 2023), which is an extremely interesting period for few-shot learning
+because it exhibits signiﬁcant market turbulence, previously unseen market dynamics, and numerous regime shifts. It
+includes the Bull market of 2018/2019, followed by the COVID-19 pandemic in 2020/2021 and then the beginning of
+the Russia-Ukraine war in 2022. During this 5-year period X-Trend improves upon the Sharpe of the baseline strategy
+by 169% and X-Trend-Q improves upon the baseline by 189%. It is evident that the cross-attention step is the primary
+driver of the improvement in risk-adjusted returns. We observe that X-Trend-Q and X-Trend outperform X-Trend-G
+6
+7
+
+The futures contracts are chained together using the backwards ratio-adjusted method.
+https://pinnacledata2.com/clc.html
+
+10
+
+Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies
+
+(Table 1), which suggests that the model is able to learn and beneﬁt from a more complex returns distribution, compared
+to assuming Gaussian returns. We argue that this is likely because we explicitly force the model to pay attention to
+large movements by performing QRE on quantiles in the left (and right) tail of the returns distribution.
+The few-shot results in Table 1 show the impact of changing the context set size, context sequence (maximum) length,
+and different methodologies for selecting the context hidden state to attend to. Notably, for X-Trend, we demonstrate
+that by segmenting the context set with CPD, we improve Sharpe by a further 113%, showing the beneﬁt of constructing
+context sets with regimes. In effect, we are constructing a context set with only the most informative observations.
+In Fig. 5 we plot the strategy drawdown of the X-Trend-Q strategy compared to our baseline learner over the period
+2018 to 2023, focusing on the COVID-19 drawdown – the most signiﬁcant “momentum crash” or drawdown in the
+TSMOM strategies over the entire 33 years of historical data. Noting that the drawdown begins on 29 Jan 2020 for both
+strategies, we observe a maximum drawdown (MDD) of 26% for X-Trend-Q compared to an MDD of 34% for the
+baseline. Furthermore, the drawdown ends after 162 trading days for X-Trend-Q compared to 254 days for the Baseline
+which is an entire year and almost twice as long as X-Trend-Q. This quick recovery demonstrates the ability of our
+agent to adapt to new regimes.
+5.2
+
+Zero-shot Setting
+
+For our zero-shot experiments in Table 2. The strategy improvement over the baseline is more pronounced than in
+the few-shot setting. We plot the strategy returns over the entire backtest (1995 to 2023) in Fig. 6, to demonstrate
+viability across time. We note a degradation of performance 2020 to 2023 and, again, we plot drawdowns over the
+period 2018 to 2023, to draw attention to the COVID-19 “momentum crash”. Despite the fact that the strategy degrades,
+trading unseen assets during this period is an extremely challenging setting and not only is the strategy still proﬁtable, it
+outperforms all benchmarks.
+Unlike the few-shot setting, it is evident that the joint loss function is the key driver of the improvement of results in the
+zero-shot setting. Furthermore, in the zero-shot setting, X-Trend-G outperforms X-Trend-Q, indicating that the simpler
+assumption of Gaussian returns is favourable in a low-resource setting.
+
+Figure 6: Zero-shot setting cumulative strategy returns (left) and drawdown plot (right), averaged across 10 full repeats
+and an additional portfolio volatility re-scaling step to 15% volatility.
+11
+
+Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies
+
+Method
+Reference
+Baseline
+
+X-Trend
+
+X-Trend-G
+
+X-Trend-Q
+
+Loss
+Long
+TSMOM
+MACD
+Sharpe
+J-Gauss
+J-QRE
+Sharpe
+Sharpe
+Sharpe
+Sharpe
+Sharpe
+Sharpe
+Sharpe
+Sharpe
+Sharpe
+J-Gauss
+J-Gauss
+J-Gauss
+J-Gauss
+J-Gauss
+J-Gauss
+J-Gauss
+J-Gauss
+J-Gauss
+J-QRE
+J-QRE
+J-QRE
+J-QRE
+J-QRE
+J-QRE
+J-QRE
+J-QRE
+J-QRE
+
+Context Time-step
+Final/Time/CPD
+
+T
+F
+F
+F
+F
+C
+C
+C
+C
+T
+F
+F
+F
+F
+C
+C
+C
+C
+T
+F
+F
+F
+F
+C
+C
+C
+C
+
+|C|
+
+lc
+
+10
+10
+20
+30
+10
+10
+20
+30
+10
+10
+10
+20
+30
+10
+10
+20
+30
+10
+10
+10
+20
+30
+10
+10
+20
+30
+10
+
+126
+21
+21
+21
+63
+21
+21
+21
+63**
+126
+21
+21
+21
+63
+21
+21
+21
+63**
+126
+21
+21
+21
+63
+21
+21
+21
+63**
+
+Average Annual Sharpe Ratio
+2018–2023
+2013–2023
+1995–2023
+0.48
+0.40
+0.60
+0.23
+0.71
+1.01
+0.27
+0.45
+0.71
+2.27
+1.93
+2.91
+2.43 (+7.2%)
+2.06 (+7.0%)
+3.04 (+4.5%)
+2.26 (-0.5%)
+1.96 (+1.6%)
+2.89 (-0.9%)
+2.28 (+0.2%)
+1.97 (+2.4%)
+2.93 (+0.5%)
+2.35 (+3.4%)
+1.99 (+3.2%)
+3.01 (+3.4%)
+2.38 (+4.9%)
+1.99 (+3.4%)
+3.02 (+3.6%)
+2.25 (-0.9%)
+1.99 (+3.1%)
+3.03 (+4.0%)
+2.31 (+1.7%)
+1.97 (+2.3%)
+3.11 (+6.9%)
+2.30 (+1.1%)
+2.02 (+4.7%)
+3.04 (+4.5%)
+2.65 (+16.9%) 2.17 (+12.5%) 3.17 (+8.8%)
+2.38 (+5.0%)
+2.02 (+4.6%)
+3.08 (+5.8%)
+2.50 (+10.1%)
+2.14 (+11.2%)
+3.11 (+6.8%)
+2.47 (+8.8%)
+2.14 (+11.1%)
+3.16 (+8.5%)
+2.25 (-1.0%)
+1.90 (-1.3%)
+3.10 (+6.5%)
+2.52 (+11.0%)
+2.10 (+8.8%)
+3.05 (+4.8%)
+2.26 (-0.5%)
+2.08 (+7.9%)
+3.04 (+4.2%)
+2.42 (+6.5%)
+2.07 (+7.4%)
+3.17 (+8.8%)
+2.42 (+6.8%)
+2.09 (+8.1%)
+3.06 (+5.1%)
+2.42 (+6.5%)
+2.03 (+5.2%)
+3.11 (+6.8%)
+2.51 (+10.4%)
+2.12 (+9.8%)
+3.07 (+5.4%)
+2.32 (+2.1%)
+2.00 (+3.6%)
+3.18 (+9.2%)
+2.53 (+11.6%)
+2.12 (+10.1%)
+3.08 (+5.9%)
+2.38 (+4.9%)
+1.98 (+2.5%)
+3.07 (+5.3%)
+2.21 (-2.8%)
+1.86 (-3.4%)
+2.94 (+0.8%)
+2.42 (+6.6%)
+2.05 (+6.5%)
+3.03 (+4.2%)
+2.49 (+9.6%)
+2.04 (+5.8%)
+3.06 (+5.1%)
+2.26 (-0.5%)
+2.03 (+5.3%)
+3.07 (+5.3%)
+2.53 (+11.6%)
+2.08 (+7.7%)
+3.07 (+5.5%)
+2.4 (+5.6%)
+2.02 (+4.5%)
+3.01 (+3.2%)
+2.70 (+18.9%) 2.14 (+10.9%) 3.11 (+6.8%)
+
+Table 1: Few-shot learning strategy results, backtested out-of-sample on a portfolio of 50 liquid continuous futures
+contracts, averaged over ten seeds. We provide an ablation of the X-Trend architectural innovations and provide results
+for different hyperparameters. It should be noted that lc is the maximum context length for the CPD segmented version.
+**
+We use a higher CPD threshold, such that our context ‘regimes’ are longer.
+
+Method
+Reference
+Baseline
+X-Trend
+
+Loss
+Long
+TSMOM
+MACD
+Sharpe
+J-Gauss
+J-QRE
+Sharpe
+J-Gauss
+J-QRE
+
+Context Time-step
+Final/Time/CPD
+
+C
+C
+C
+
+|C|
+
+lc
+
+20
+20
+10
+
+21
+21
+63**
+
+Average Annual Sharpe Ratio
+2018–2023 2013–2023 1995–2023
+0.28
+0.02
+0.28
+-0.26
+0.05
+0.61
+-0.14
+0.11
+0.32
+-0.11
+0.02
+1.00
+0.14
+0.19
+1.25
+0.16
+0.10
+1.26
+0.13
+0.18
+1.17
+0.47
+0.47
+1.44
+0.12
+0.18
+1.27
+
+Table 2: Zero-shot learning strategy results, backtested on a portfolio of 20 liquid continuous futures contracts, averaged
+over ten seeds. We provide an ablation of the X-Trend architectural innovations and provide results for different
+hyperparameters. It should be noted that lc is the maximum context length for the CPD segmented version. ** We use a
+higher CPD threshold, such that our context ‘regimes’ are longer.
+
+12
+
+Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies
+
+5.3
+
+Dissecting the X-Trend Architecture
+
+In Fig. 7 and Fig. 8 we explore the relationship between our predictive returns output distribution and the PTP trading
+signal. In both examples, we observe that the predictive mean and median only make small movements above and below
+zero. This indicates that the model has learnt that we are operating in a low signal-to-noise environment, aiming to
+capitalize on slight market inefﬁciencies. Despite observing that there are small spikes and dips in predictive volatility,
+the estimate typically remains close to 1, which suggests that our volatility targeting step, which targets 1 in this
+example, is functioning as expected.
+For X-Trend-G (Fig. 7), we observe that there is an almost linear relationship between the predictive mean and trading
+signal, indicating that the strategy uses the predictive mean as a measure of conviction and sizes the position accordingly.
+The relationship between predictive volatility and position is less clear. This suggests that it is the predictive mean
+driving the strategy and the predictive volatility is being used for volatility scaling. We can observe that the volatility
+scaling pre-processing job of altering leverage based on the 60-day ex-ante volatility is doing a good job because we
+can observe that the 95% conﬁdence interval is fairly stable around ±196 when targeting a daily volatility of 1.
+For X-Trend-Q (Fig. 8), we observe that the trading signal deviates more from the predictive median than X-Trend-G,
+indicating that it incorporates the full predictive distribution into the trading signal. This is likely the reason that the
+Sharpe for X-Trend-Q outperforms X-Trend-G by 71% in the few-shot setting over the turbulent period of 2018 to
+2023. This supports our hypothesis that, for the best results, Gaussianity of returns should not be assumed in the
+few-shot setting. The assumption of Gaussian returns may be more appropriate in the low-resource setting.
+
+We provide an illustrative example of how we can interpret the cross-attention weights in Fig. 9 for the natural gas
+futures contract in 2022; a period exhibiting signiﬁcant trends due to the Russia-Ukraine conﬂict. We examine 3 points
+in time, which correspond to 3 different regimes, and in all cases, the top 3 attention weights are highly intuitive. The
+target point at the beginning of an uptrend correctly identiﬁes another commodity uptrend with the highest weight,
+with the other top 2 being a commodity mean-reversion and a large equity uptrend. The target point at the beginning
+of the large downtrend clearly identiﬁes another commodity sequence with a large downtrend, with almost double
+the weighting of the next highest. The target point during the beginning of a reversal identiﬁes a slight downtrend
+with reversion, an extremely short downtrend, and an uptrend with signiﬁcant reversion for the top three weights.
+Interestingly, in this case, the model actually identiﬁes similarities with equities sequences instead of commodities.
+
+Figure 7: The relationship between X-Trend-G predictive mean and volatility with the PTP trading signal for the Wheat
+continuous futures contract. Here, we use leverage to target a daily volatility of 1, for clarity. We have provided a 95%
+conﬁdence interval in the top plot to illustrate our predictive standard deviation.
+13
+
+Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies
+
+Figure 8: The relationship between X-Trend-Q predictive median, inter-quartile range, and 95% conﬁdence interval
+with the PTP trading signal for S&P 500 Mini continuous futures contract. The bottom plot is a zoomed version of the
+top plot, with the trading signal superimposed. Here, we target daily volatility of 1, for clarity.
+
+Figure 9: An illustrative example of the top 3 attention weights for the target natural gas futures contract in 2022, a
+period exhibiting signiﬁcant trends due to the Russia-Ukraine conﬂict. The + symbols align the query (target) with
+associated hidden states for keys in the context sets, using colours to match attention weights with the time of forecast.
+The points we focus on are: the beginning of a signiﬁcant uptrend (top), the beginning of a signiﬁcant downtrend
+(middle), and a reversion (bottom). This example uses X-Trend with change-point segmented context sequences,
+C= 20 (meaning a uniform attention pattern would set all weights to 5%), and max length lmax = 20. We list the
+ticker, hidden-state date, and attention weight for each context sequence. The context contracts plotted are Soybean Oil
+(ZL), Rough Rice (ZR), CAC 40 index (CA), Platinum (ZP), Cocoa (CC), Mexican Peso (MP), Nikkei index (NK) and
+FTSE 100 index (LX).
+
+6
+
+Related Works
+
+Transfer Learning. We can transfer features learned from one dataset to enable learning from new datasets more
+quickly. Transferring NN weights can also enable learning from new smaller datasets. This can be done by ne-tuning
+the weights of a NN on a new task with SGD or linear-probing which freezes lower layers of the network and only
+updates the top layers [39].
+14
+
+Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies
+
+Few-shot learning. Few-shot learning is characterized by enabling NNs to be able to learn to make predictions using
+little data. One key idea for enabling this is to train the few-shot learning agent in the same way that it is used for testing.
+This is the idea of episodic learning where if we wish to train a model to make predictions using only k examples or
+shots then we need to train the model by performing k-shot learnings [8, 13]. Non-parametric methods are a natural ﬁt
+for few-shot learning [40]. Learning distances between a few context points and a new target point has been fruitful for
+few-shot image classiﬁcation [10, 41, 42]. Neural processes learn to sample functions like Gaussian Process [43, 37, 20].
+Automatic context construction for few-shot learning using change-point detection methods has also been explored for
+image datasets [44]. Recently there have been works that challenge some of the common assumptions for few-shot
+image classiﬁcation [45, 46, 47].
+Few-shot learning for time-series. Neural Processes [37] which parameterize a distribution over functions have been
+employed for few-shot learning for time-series forecasting [48]. Neural processes algorithmically use a latent variable
+to enable drawing a new function for each point by sampling; the latent variable can employ autoregressive transition
+dynamics for time-series [49]. One can condition the target time-series predictions on a context of time-series with
+a cross-attention mechanism [38]. The cross-attention mechanism has been shown to be very effective for Neural
+Processes [20]. Gradient-based few-shot learning has also been successfully employed for time-series [50]. From the
+literature and from our own initial experiments on toy data (Appendix B) we found the cross-attention very effective for
+few-shot learning for time-series.
+Deep-learning for nancial time-series. Building on the work of the vanilla DMNs, [3], the Momentum Transformer [19], which is a variant of the Temporal Fusion Transformer [25], incorporates an attention mechanism to attend
+to prior LSTM hidden-states from the same sequence. The attention pattern naturally segments the time-series into
+regimes, where signiﬁcant importance is placed on the ﬁnal hidden state of each regime, motivating the cross-attention
+step in this paper. Other works demonstrate that causal convolutional ﬁlters can be be utilized to automatically generate
+features [51, 32], as an alternative to the momentum factor approach used in this paper. The work of [18] utilizes
+convolutions followed by an LSTM to generate features from limit order book (LOB) data. There is growing evidence to
+suggest that we can beneﬁt from a cross-section of assets to assist our forecasting, where the work by [32] implements
+convolutional ﬁlters across assets and [52] uses a graph learning model to reveal momentum spillover. Meta-learning
+has been used in ﬁnance to construct a partial index portfolio to track a benchmark index where the asset allocation is
+meta-learned [53].
+For a broad review of the ﬁnancial machine learning literature, we direct readers to [54]. For a more general overview
+of deep-learning techniques for time-series forecasting we direct readers to [55].
+
+7
+
+Conclusions and Future Work
+
+We introduce X-Trend: the Cross Attentive Time-Series Trend Network. It leverages few-shot learning and changepoint detection to enable adaptation to new ﬁnancial regimes. We show that it is able to recover from the COVID-19
+draw-down almost twice as quickly as an equivalent neural time-series agent. Over the 5-year period 2018 to 2023,
+we are able to improve risk-adjusted returns by 189% compared to the baseline agent and around 10-fold compared
+to a conventional Time-series Momentum (TSMOM) strategy. This boost in performance is largely driven by our
+cross-attention step which transfers trends, from similar patterns in a context set. Furthermore, our model can generate
+proﬁtable zero-shot trading signals in an extremely challenging low-resource setting where we trade a previously unseen
+asset we achieve a Sharpe of 047 compared to loss-making time-series momentum baselines, both deep-learning based
+and conventional TSMOM. In this work we withheld assets from a standard dataset to test zero-shot performance; a
+future avenue of work could be applying this framework to an emerging asset class such as cryptocurrencies.
+We illustrate the importance of constructing a good context set, where we improve Sharpe by 113% after segmenting the
+sequences with change-point detection. A future avenue of work would be to further investigate context set construction.
+One possibility could be considering a cross-sectional approach where we attend across a universe of assets at the
+same time, motivated by the works [32, 56] with the option of including lead-lag [57]. We could consider generating
+synthetic data for the context set [58]. Another direction of work, inspired by the Neural Process literature, is to
+reconcile optimizing a Sharpe ratio with optimizing the evidence lower bound for variational inference required for
+latent variable Neural Process time-series models [38, 48]. Finally, this work could be combined with other innovations
+that expand upon the standard Deep Momentum Network framework such as bringing transaction costs into the loss
+function [3] and including change-point features in the decoder [4]. We could also use self-attention in the temporal
+dimension [19, 25], introducing it in the decoder, and automatically generating features from our assets [32].
+15
+
+Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies
+
+8
+
+Acknowledgements
+
+The authors would like to thank the Oxford-Man Institute of Quantitative Finance for its generous support. SR would
+like to thank the U.K. Royal Academy of Engineering.
+
+References
+[1] Kent Daniel and Tobias J. Moskowitz. Momentum crashes. Journal of Financial Economics, 122(2):221 – 247,
+2016.
+[2] Ashish Garg, Christian L Goulding, Campbell R Harvey, and Michele Mazzoleni. Momentum turning points.
+Available at SSRN 3489539, 2021.
+[3] Bryan Lim, Stefan Zohren, and Stephen Roberts. Enhancing time-series momentum strategies using deep neural
+networks. The Journal of Financial Data Science, 1(4):19–38, 2019.
+[4] Kieran Wood, Stephen Roberts, and Stefan Zohren. Slow momentum with fast reversion: A trading strategy using
+deep learning and changepoint detection. The Journal of Financial Data Science, 4(1):111–129, 2022.
+[5] Tobias J Moskowitz, Yao Hua Ooi, and Lasse Heje Pedersen. Time series momentum. Journal of nancial
+economics, 104(2):228–250, 2012.
+[6] Nick Baltas. The impact of crowding in alternative risk premia investing. Financial Analysts Journal, 75(3):89–104,
+2019.
+[7] Gregory W Brown, Philip Howard, and Christian T Lundblad. Crowded trades and tail risk. The Review of
+Financial Studies, 35(7):3231–3271, 2022.
+[8] Oriol Vinyals, Charles Blundell, Timothy Lillicrap, Daan Wierstra, et al. Matching networks for one shot learning.
+Advances in neural information processing systems, 29, 2016.
+[9] Sachin Ravi and Hugo Larochelle. Optimization as a model for few-shot learning. 2016.
+[10] Jake Snell, Kevin Swersky, and Richard Zemel. Prototypical networks for few-shot learning. Advances in neural
+information processing systems, 30, 2017.
+[11] Yan Duan, John Schulman, Xi Chen, Peter L Bartlett, Ilya Sutskever, and Pieter Abbeel. Rl2 : Fast reinforcement
+learning via slow reinforcement learning. arXiv preprint arXiv:1611.02779, 2016.
+[12] Jane X Wang, Zeb Kurth-Nelson, Dhruva Tirumala, Hubert Soyer, Joel Z Leibo, Remi Munos, Charles Blundell,
+Dharshan Kumaran, and Matt Botvinick. Learning to reinforcement learn. arXiv preprint arXiv:1611.05763,
+2016.
+[13] Chelsea Finn, Pieter Abbeel, and Sergey Levine. Model-agnostic meta-learning for fast adaptation of deep
+networks. In International Conference on Machine Learning, pages 1126–1135. PMLR, 2017.
+[14] James M Poterba and Lawrence H Summers. Mean reversion in stock prices: Evidence and implications. Journal
+of nancial economics, 22(1):27–59, 1988.
+[15] Dimitri Vayanos and Paul Woolley. An institutional theory of momentum and reversal. The Review of Financial
+Studies, 26(5):1087–1145, 2013.
+[16] William F. Sharpe. The sharpe ratio. The Journal of Portfolio Management, 21(1):49–58, 1994.
+[17] Justin Sirignano and Rama Cont. Universal features of price formation in ﬁnancial markets: Perspectives from
+deep learning. SSRN, 2018.
+[18] Zihao Zhang, Stefan Zohren, and Stephen Roberts. Deeplob: Deep convolutional neural networks for limit order
+books. IEEE Transactions on Signal Processing, 67(11):3001–3012, 2019.
+[19] Kieran Wood, Sven Giegerich, Stephen Roberts, and Stefan Zohren. Trading with the momentum transformer: An
+intelligent and interpretable architecture. arXiv preprint arXiv:2112.08534, 2021.
+[20] Hyunjik Kim, Andriy Mnih, Jonathan Schwarz, Marta Garnelo, Ali Eslami, Dan Rosenbaum, Oriol Vinyals, and
+Yee Whye Teh. Attentive neural processes. arXiv preprint arXiv:1901.05761, 2019.
+[21] Carl Doersch, Ankush Gupta, and Andrew Zisserman. Crosstransformers: spatially-aware few-shot transfer.
+Advances in Neural Information Processing Systems, 33:21981–21993, 2020.
+[22] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and
+Illia Polosukhin. Attention is all you need. Advances in neural information processing systems, 30, 2017.
+16
+
+Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies
+
+[23] Roman Garnett, Michael A Osborne, Steven Reece, Alex Rogers, and Stephen J Roberts. Sequential bayesian
+prediction in the presence of changepoints and faults. The Computer Journal, 53(9):1430–1446, 2010.
+[24] Yunus Saatçi, Ryan D Turner, and Carl E Rasmussen. Gaussian process change point models. In Proceedings of
+the 27th International Conference on Machine Learning (ICML-10), pages 927–934, 2010.
+[25] B Lim, SO Arik, N Loeff, and T Pﬁster. Temporal fusion transformers for interpretable multi-horizon time series
+forecasting. arxiv. arXiv preprint arXiv:1912.09363, 2019.
+[26] Abby Y. Kim, Yiuman Tse, and John K. Wald. Time series momentum and volatility scaling. Journal of Financial
+Markets, 30:103 – 124, 2016.
+[27] Campbell R. Harvey, Edward Hoyle, Russell Korgaonkar, Sandy Rattray, Matthew Sargaison, and Otto van Hemert.
+The impact of volatility targeting. SSRN, 2018.
+[28] Herbert Robbins and Sutton Monro. A stochastic approximation method. The annals of mathematical statistics,
+pages 400–407, 1951.
+[29] Ian Goodfellow, Yoshua Bengio, and Aaron Courville. Deep Learning. MIT Press, 2016. http://www.
+deeplearningbook.org.
+[30] Brian Hurst, Yao Hua Ooi, and Lasse Heje Pedersen. A century of evidence on trend-following investing. The
+Journal of Portfolio Management, 44(1):15–29, 2017.
+[31] Jamil Baz, Nicolas Granger, Campbell R. Harvey, Nicolas Le Roux, and Sandy Rattray. Dissecting investment
+strategies in the cross section and time series. SSRN, 2015.
+[32] Tom Liu, Stephen Roberts, and Stefan Zohren. Deep inception networks: A general end-to-end framework for
+multi-asset quantitative strategies. arXiv preprint arXiv:2307.05522, 2023.
+[33] Sepp Hochreiter and Jürgen Schmidhuber. Long short-term memory. Neural computation, 9(8):1735–1780, 1997.
+[34] Cheng Guo and Felix Berkhahn. Entity embeddings of categorical variables. arXiv preprint arXiv:1604.06737,
+2016.
+[35] Djork-Arné Clevert, Thomas Unterthiner, and Sepp Hochreiter. Fast and accurate deep network learning by
+exponential linear units (elus). arXiv preprint arXiv:1511.07289, 2015.
+[36] Ruofeng Wen, Kari Torkkola, Balakrishnan Narayanaswamy, and Dhruv Madeka. A multi-horizon quantile
+recurrent forecaster. arXiv preprint arXiv:1711.11053, 2017.
+[37] Marta Garnelo, Jonathan Schwarz, Dan Rosenbaum, Fabio Viola, Danilo J Rezende, SM Eslami, and Yee Whye
+Teh. Neural processes. arXiv preprint arXiv:1807.01622, 2018.
+[38] Shenghao Qin, Jiacheng Zhu, Jimmy Qin, Wenshuo Wang, and Ding Zhao. Recurrent attentive neural process for
+sequential data. arXiv preprint arXiv:1910.09323, 2019.
+[39] Ananya Kumar, Aditi Raghunathan, Robbie Jones, Tengyu Ma, and Percy Liang. Fine-tuning can distort pretrained
+features and underperform out-of-distribution. arXiv preprint arXiv:2202.10054, 2022.
+[40] Massimiliano Patacchiola, Jack Turner, Elliot J Crowley, Michael O’Boyle, and Amos J Storkey. Bayesian
+meta-learning for the few-shot setting via deep kernels. Advances in Neural Information Processing Systems,
+33:16108–16118, 2020.
+[41] Flood Sung, Yongxin Yang, Li Zhang, Tao Xiang, Philip HS Torr, and Timothy M Hospedales. Learning to
+compare: Relation network for few-shot learning. In Proceedings of the IEEE conference on computer vision and
+pattern recognition, pages 1199–1208, 2018.
+[42] Wei-Yu Chen, Yen-Cheng Liu, Zsolt Kira, Yu-Chiang Frank Wang, and Jia-Bin Huang. A closer look at few-shot
+classiﬁcation. arXiv preprint arXiv:1904.04232, 2019.
+[43] Marta Garnelo, Dan Rosenbaum, Christopher Maddison, Tiago Ramalho, David Saxton, Murray Shanahan,
+Yee Whye Teh, Danilo Rezende, and SM Ali Eslami. Conditional neural processes. In International Conference
+on Machine Learning, pages 1704–1713. PMLR, 2018.
+[44] James Harrison, Apoorva Sharma, Chelsea Finn, and Marco Pavone. Continuous meta-learning without tasks.
+Advances in neural information processing systems, 33:17571–17581, 2020.
+[45] Yonglong Tian, Yue Wang, Dilip Krishnan, Joshua B Tenenbaum, and Phillip Isola. Rethinking few-shot image
+classiﬁcation: a good embedding is all you need? In Computer Vision–ECCV 2020: 16th European Conference,
+Glasgow, UK, August 23–28, 2020, Proceedings, Part XIV 16, pages 266–282. Springer, 2020.
+[46] Guneet S Dhillon, Pratik Chaudhari, Avinash Ravichandran, and Stefano Soatto. A baseline for few-shot image
+classiﬁcation. arXiv preprint arXiv:1909.02729, 2019.
+17
+
+Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies
+
+[47] Steinar Laenen and Luca Bertinetto. On episodes, prototypical networks, and few-shot learning. Advances in
+Neural Information Processing Systems, 34:24581–24592, 2021.
+[48] Timon Willi, Jonathan Masci, Jürgen Schmidhuber, and Christian Osendorfer. Recurrent neural processes. arXiv
+preprint arXiv:1906.05915, 2019.
+[49] Gautam Singh, Jaesik Yoon, Youngsung Son, and Sungjin Ahn. Sequential neural processes. Advances in Neural
+Information Processing Systems, 32, 2019.
+[50] Gerald Woo, Chenghao Liu, Doyen Sahoo, Akshat Kumar, and Steven Hoi. Deeptime: Deep time-index metalearning for non-stationary time-series forecasting. arXiv preprint arXiv:2207.06046, 2022.
+[51] Jingwen Jiang, Bryan T Kelly, and Dacheng Xiu. (re-) imag (in) ing price trends. Chicago Booth Research Paper,
+(21-01), 2020.
+[52] Xingyue Stacy Pu, Stephen Roberts, Xiaowen Dong, and Stefan Zohren. Network momentum across asset classes.
+Stephen and Dong, Xiaowen and Zohren, Stefan, Network Momentum across Asset Classes (August 7, 2023),
+2023.
+[53] Yongxin Yang and Timothy Hospedales. Partial index tracking: A meta-learning approach. In Conference on
+Lifelong Learning Agents, pages 415–436. PMLR, 2023.
+[54] Bryan T Kelly and Dacheng Xiu. Financial machine learning. Technical report, National Bureau of Economic
+Research, 2023.
+[55] Bryan Lim and Stefan Zohren. Time-series forecasting with deep learning: a survey. Philosophical Transactions
+of the Royal Society A, 379(2194):20200209, 2021.
+[56] Wee Ling Tan, Stephen Roberts, and Stefan Zohren. Spatio-temporal momentum: Jointly learning time-series and
+cross-sectional strategies. arXiv preprint arXiv:2302.10175, 2023.
+[57] Yichi Zhang, Mihai Cucuringu, Alexander Y Shestopaloff, and Stefan Zohren. Robust detection of lead-lag
+relationships in lagged multi-factor models. arXiv preprint arXiv:2305.06704, 2023.
+[58] Magnus Wiese, Robert Knobloch, Ralf Korn, and Peter Kretschmer. Quant gans: deep generation of ﬁnancial
+time series. Quantitative Finance, 20(9):1419–1440, 2020.
+[59] Taesup Kim, Jaesik Yoon, Ousmane Dia, Sungwoong Kim, Yoshua Bengio, and Sungjin Ahn. Bayesian modelagnostic meta-learning. arXiv preprint arXiv:1806.03836, 2018.
+[60] Diederik P Kingma and Max Welling. Auto-encoding variational bayes. arXiv preprint arXiv:1312.6114, 2013.
+[61] Ronald J. Williams and David Zipser. A learning algorithm for continually running fully recurrent neural networks,
+1989.
+[62] Diederik Kingma and Jimmy Ba. Adam: A method for stochastic optimization. In International Conference on
+Learning Representations (ICLR), 2015.
+[63] Nitish Srivastava, Geoffrey Hinton, Alex Krizhevsky, Ilya Sutskever, and Ruslan Salakhutdinov. Dropout: A
+simple way to prevent neural networks from overﬁtting. Journal of Machine Learning Research, 15:1929–1958,
+2014.
+[64] Adam Paszke, Sam Gross, Soumith Chintala, Gregory Chanan, Edward Yang, Zachary DeVito, Zeming Lin,
+Alban Desmaison, Luca Antiga, and Adam Lerer. Automatic differentiation in PyTorch. In Autodiff Workshop –
+Advances in Neural Information Processing (NeurIPS), 2017.
+
+18
+
+Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies
+
+Supplementary Material
+Appendix A
+
+Gaussian Process Change Point Segmentation
+
+Even after using returns to linearly de-trending the price-series and by employing volatility scaling to target a consistent
+volatility, we still encounter occasional and signiﬁcant periods of disequilibrium or regime change. The work in [4]
+explores how a Gaussian Process (GP) based online change-point detection (CPD) [23, 24] module can be inserted
+to help address any transitions in regime, which motivates the episodic approach taken in this paper. The work by
+[4], assumes that there is a single change-point in some pre-speciﬁed lookback window (LBW), then calculates the
+change-point location and severity, therefore an approximately stationary regime will correspond with a very low
+severity. The severity is computed by the improvement in log marginal-likelihood using a change-point covariance
+kernel, in comparison to a simple Gaussian Processes, GP(·, ·)8 . The Change-point kernel assumes that there are
+instead two underlying Gaussian Processes of the same kernel, GP 1 (·, ·) and GP 2 (·, ·) (which we refer to together as
+GP C ), either side of the assumed change-point with a soft transition from the ﬁrst to the second. That is, we measure
+the beneﬁt of using two separate kernels instead of one. We leave the location of the transition tCPD as a free variable,
+which we tune when we maximize the likelihood. In this work we use a LBW of llbw = 21 as a compromise between
+speed of detection and robustness to noise [4]. This is not to be confused with the fact that we can have regimes longer
+than llbw because we identify regime change when the severity threshold ν is reached. We detail our CPD algorithm
+in Algorithm 1. We use a change-point severity of ν = 09 for the experiments where we set maximum regime length
+as lmax = 21 and we set ν = 095 for the experiments where we use lmax = 63. We disregard regimes with lengths
+less than lmin = 5.
+Algorithm 1: Time-series CPD segmentation
+(i)
+
+Data: price series p1:T , CPD LBW llbw , CPD threshold ν, min. segment length lmin , max. segment length lmax
+(i)
+Result: segmented price series pt0 :t1 (t0 ,t1 )∈R
+1 Initialize: t ← T , t1 ← T , regimes R ← ∅ ;
+2 while t ≥ 0 do
+3
+Fit GP with Matérn 3/2 kernel on p−llbw :t and calculate marginal likelihood, LM ;
+4
+Fit GP C with Change-point kernel on p−llbw :t and calculate marginal likelihood, LC and change-point location
+hyperparameter tCPD ;
+C
+≥ ν then
+5
+if LML+L
+C
+6
+t0 ← tc  ;
+7
+if t1 − t0 ≥ lmin then
+8
+R ← R  (t0 , t1 )
+9
+end
+10
+t ← tc  − 1 # so that ‘good’ representation isn’t corrupted;
+11
+t1 ← t
+12
+else
+13
+t ← t − 1;
+14
+if t1 − t > lmax then
+15
+t ← t1 − lmax ;
+16
+end
+17
+if t1 − t = lmax then
+18
+R ← R  (t, t1 );
+19
+t1 ← t;
+20
+end
+21
+end
+22 end
+
+8
+A typical choice could be an Ornstein–Uhlenbeck process, which is the Matérn Kernel 1/2 kernel. For consistency with the
+motivating work [4], we use the Matérn 3/2 kernel.
+
+19
+
+Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies
+
+Keys
+
+Query
+
+Values
+Self
+Attention
+
+Decoder
+Cross Attention
+
+Figure 10: Recurrent attentive neural process. The keys and values are the context set hidden states. We have a
+self-attention mechanism over hidden states in the values. The LSTM encoders for the values and keys have separate
+parameters. The queries are encoded by a separate LSTM with parameters ψ. The cross-attention mechanism outputs
+a similarity between the target x∗ and the context C representation of the context set: r and the latent variable s is
+sampled to produce a summary of the context set to condition an LSTM decoder to make predictions on a target set x∗ .
+
+Appendix B
+B.1
+
+Recurrent Attentive Neural Process Experiments
+
+Model Architecture
+
+We use the recurrent attentive neural process [38] as a benchmark to study the importance of certain model components.
+In this section, we will summarize the model and provide an overview in Fig. 10.
+We use C contexts which are sequences of length l. The targets x∗1:k have a length k and are required to produce
+a prediction y∗ := x∗k+1 . Causally the contexts are all observed at time-steps prior to the targets. The contexts are
+passed into an LSTM encoder with parameters θ. The ﬁnal hidden states hi are passed into a self-attention module over
+contexts before the cross-attention branch.
+We perform cross attention between the context encodings hi and the targets x∗1:k . The targets are encoded by a separate
+LSTM network with parameters ψ and the ﬁnal hidden state h is the query vector in the cross-attention model. The
+encoded contexts hi , ∀i ∈ C are the values. The keys are the contexts, which are encoded similarly to the values but
+with another LSTM encoder with parameters φ. The output of the cross attention is r and is used to condition the
+decoder [59, 38].
+
+The encodings hi from the encoder are then aggregated with a sum operation
+in Fig. 10. These encodings are then
+passed into two separate linear layers which are used to parameterize the mean and variance of a latent variable s which
+is distributed according to a Gaussian distribution and trained using the reparameterization trick [60]. The context
+encodings r and the draw from s, Z are stacked on top of the targets x∗ before producing predictions with an LSTM
+decoder network with parameters ϕ [38, 48].
+B.2
+
+Results
+
+We generate a dataset of GP draws for the recurrent attentive neural process [38] Fig. 10 to produce forecasts. The GP
+curves are generated using an RBF (Radial Basis Function) kernel with a length scale of 04 and noise variance of 10.
+Each context is drawn from a different GP draw. The length of each sequence in the context C, the input xc and output
+yc are temporally connected sequences of length lC ∼ U[10, 30]. Likewise, the target is taken from a separate GP draw
+where the input xT and the output yT are temporally connected sequences of length lT ∼ U[10, 30]. The target decoder
+is trained for 50k iterations using teacher forcing and during testing unrolls the forecast using the previous prediction as
+a new input [61]. We use a Gaussian likelihood and assess test performance using the MSE.
+20
+
+Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies
+
+Figure 11: The ﬁnal test MSE for different model choices for increasing number of context sequences. The results are a
+mean ±1 standard error over 5 seeds.
+Table 4: Training Fixed Parameters.
+Table 3: Hyperparameter Search Range.
+Hyperparameters
+
+Random Grid
+
+Dropout Rate
+Hidden Layer Size, dh
+Minibatch Size, b
+Max Gradient Norm
+
+0.3, 0.4, 0.5
+64, 128
+64, 128
+10−2 , 100 , 102
+
+Parameter
+
+Value
+
+Learning Rate
+Target, training warm-up steps, ls
+Target, total LSTM steps, lt
+Early stopping patience
+Maximum SGD iterations
+Number attention heads
+Attention dimension, datt
+Joint loss weight, αX−Trend−G
+Joint loss weight, αX−Trend−Q
+
+10−3
+63
+126
+10
+100
+4
+dh
+1
+5
+
+From Fig. 11 we can see that the baseline LSTM forecaster with no context C, suffers from overﬁtting after training for
+a ﬁxed number of iterations. The full sequential NP with latent variable, self-attention over the context hidden states,
+and cross-attention between target and contexts obtains good forecasting performance for all different experimental
+settings for different context set sizes.
+When we ablate away certain components, we see that performance remains the same when removing the latent variable
+and the self-attention. However, If we remove the cross-attention between the contexts and the target sequences then
+the sequential NP underﬁts severely. This underﬁtting becomes more severe as more context sequences are used to
+condition the sequential NP (Fig. 11).
+
+Appendix C
+
+Training Details
+
+We calibrate our model using the training data by optimizing the Sharpe loss function via minibatch Stochastic Gradient
+Descent (SGD) [28], using the Adam optimizer [62]. We employ dropout [63], which helps to prevent the model from
+overﬁtting by randomly removing hidden nodes in the training phase. We list the ﬁxed model parameters for each
+architecture in Table 4, including early stopping patience. We keep the last 10% of the training data, for each asset, as
+a validation set. We implement 10 iterations of random grid search, as an outer optimization loop, to select the best
+hyperparameters, based on the validation set. The hyperparameter search grid for each architecture is listed in Table 3.
+We perform 10 full repeats of the outer optimization loop and ensemble the 10 models for our experiments to reduce
+noise.
+Our model was implemented in the deep-learning framework PyTorch [64]. It was trained on a NVIDIA GeForce RTX
+3090 GPU.
+21
+
+Few-Shot Learning Patterns in Financial Time-Series for Trend-Following Strategies
+
+Appendix D
+
+Datasets
+
+We backtest our X-Trend variants on a portfolio of 50 liquid, continuous futures contracts over the period 1990–2023,
+extracted from the Pinnacle Data Corp CLC Database. The futures contracts are chained together using the backwards
+ratio-adjusted method. For our few-shot experiments, we use the same assets for both training and testing, using all
+assets in both Table 5 and Table 6. For our zero-shot experiments, we randomly selected 20 of the 50 Pinnacle assets as
+the target set Its , which we detail in Table 6, leaving the other 30 for Itr , which we detail in Table 5. It should be
+noted that we chose to not include any ﬁxed income contracts in the zero-shot portfolio, due to the fact that they are
+more correlated than the other futures contracts.
+Table 5: Assets in Itr for zero-shot experiments and part of
+I for few-shot experiments.
+Identier
+
+Description
+
+Commodities (CM)
+CC
+COCOA
+DA
+MILK III, composite
+LB
+LUMBER
+SB
+SUGAR #11
+ZA
+PALLADIUM, electronic
+ZC
+CORN, electronic
+ZF
+FEEDER CATTLE, electronic
+ZI
+SILVER, electronic
+ZO
+OATS, electronic
+ZR
+ROUGH RICE, electronic
+ZU
+CRUDE OIL, electronic
+ZW
+WHEAT, electronic
+ZZ
+LEAN HOGS, electronic
+Equities (EQ)
+EN
+NASDAQ, MINI
+ES
+S&P 500, MINI
+MD
+S&P 400 (Mini electronic)
+SC
+S&P 500, composite
+SP
+S&P 500, day session
+XX
+DOW JONES STOXX 50
+YM
+Mini Dow Jones ($5.00)
+Fixed Income (FI)
+DT
+EURO BOND (BUND)
+FB
+T-NOTE, 5yr composite
+TY
+T-NOTE, 10yr composite
+UB
+EURO BOBL
+US
+T-BONDS, composite
+Foreign Exchange (FX)
+AN
+AUSTRALIAN $$, composite
+DX
+US DOLLAR INDEX
+FN
+EURO, composite
+JN
+JAPANESE YEN, composite
+SN
+SWISS FRANC, composite
+
+Table 6: Assets in Its for zero-shot experiments and additional assets for I in few-shot experiments. For zero-shot experiments Its = 20 and for few-shot experiments I= 50.
+Identier
+
+Description
+
+Commodities (CM)
+GI
+GOLDMAN SAKS C. I.
+JO
+ORANGE JUICE
+KC
+COFFEE
+KW
+WHEAT, KC
+NR
+ROUGH RICE
+ZG
+GOLD, electronic
+ZH
+HEATING OIL, electronic
+ZK
+COPPER, electronic
+ZL
+SOYBEAN OIL, electronic
+ZN
+NATURAL GAS, electronic
+ZP
+PLATINUM, electronic
+ZT
+LIVE CATTLE, electronic
+Equities (EQ)
+CA
+CAC40 INDEX
+ER
+RUSSELL 2000, MINI
+LX
+FTSE 100 INDEX
+NK
+NIKKEI INDEX
+XU
+DOW JONES EUROSTOXX50
+Foreign Exchange (FX)
+BN
+BRITISH POUND, composite
+CN
+CANADIAN $$, composite
+MP
+MEXICAN PESO
+
+22
+
+

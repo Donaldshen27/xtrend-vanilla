@@ -117,8 +117,8 @@ class LSTMEncoder(nn.Module):
             c_0 = self.init_c.expand(batch_size, -1)  # (batch, hidden_dim)
 
         # LSTM expects (num_layers, batch, hidden_dim)
-        h_0 = h_0.unsqueeze(0)  # (1, batch, hidden_dim)
-        c_0 = c_0.unsqueeze(0)  # (1, batch, hidden_dim)
+        h_0 = h_0.unsqueeze(0).contiguous()  # (1, batch, hidden_dim)
+        c_0 = c_0.unsqueeze(0).contiguous()  # (1, batch, hidden_dim)
 
         # Step 3: LSTM forward pass
         # (h_t, c_t) = LSTM(x'_t, h_{t-1}, c_{t-1})

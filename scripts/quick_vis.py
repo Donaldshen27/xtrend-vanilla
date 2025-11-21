@@ -157,11 +157,20 @@ def main():
     plt.legend(); plt.tight_layout()
     plt.savefig("outputs/plots/pred_positions.png")
 
-    # Plot a simple quantile fan (10/50/90)
-    levels = [0.1, 0.5, 0.9]
-    idxs = [quantile_levels.cpu().tolist().index(q) for q in levels]
+    # Plot a simple quantile fan (10/50/90); gracefully fall back to nearest available levels
+    requested_levels = [0.1, 0.5, 0.9]
+    available = quantile_levels.cpu().tolist()
+    idxs, labels = [], []
+    for q in requested_levels:
+        if q in available:
+            idxs.append(available.index(q))
+            labels.append(q)
+        else:
+            nearest = min(available, key=lambda x: abs(x - q))
+            idxs.append(available.index(nearest))
+            labels.append(nearest)
     plt.figure(figsize=(10, 4))
-    for lbl, i in zip(levels, idxs):
+    for lbl, i in zip(labels, idxs):
         plt.plot(quants[:, i], label=f"q{lbl}")
     plt.plot(target_returns, color="k", alpha=0.3, label="actual r_{t+1}")
     plt.axhline(0, color="gray", ls="--", lw=0.8)

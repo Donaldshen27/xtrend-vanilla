@@ -57,6 +57,7 @@ def main():
     parser.add_argument("--cpd-min-length", type=int, default=5)
     parser.add_argument("--cpd-max-length", type=int, default=63)
     parser.add_argument("--allow-cpd-recompute", action="store_true")
+    parser.add_argument("--plot-price", action="store_true", help="Overlay positions on price series")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -147,15 +148,38 @@ def main():
     positions = out["positions"].cpu().numpy()[0]
     quants = out["quantiles"].cpu().numpy()[0]  # (target_len, num_quantiles)
 
-    Path("outputs/plots").mkdir(parents=True, exist_ok=True)
+    out_dir = Path("outputs/plots")
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Plot positions
+    # Plot positions alone
     plt.figure(figsize=(10, 4))
     plt.plot(positions, label="position")
     plt.axhline(0, color="gray", ls="--", lw=0.8)
     plt.title(f"{args.symbol} positions")
     plt.legend(); plt.tight_layout()
-    plt.savefig("outputs/plots/pred_positions.png")
+    plt.savefig(out_dir / "pred_positions.png")
+
+    # Optionally overlay positions on price
+    if args.plot_price:
+        # Reconstruct price slice aligned to the target window for this sample
+        full_prices = prices[args.symbol]
+        target_start_date = dataset.dates[batch["entity_id"].item()+batch["target_features"].shape[1] - batch["target_features"].shape[1]]
+        # For simplicity, use the last target_len dates from val_prices
+        price_window = full_prices.loc[val_prices.index[-len(positions):]]
+        fig, ax1 = plt.subplots(figsize=(10, 4))
+        ax1.plot(price_window.index, price_window.values, color="tab:blue", label="price")
+        ax1.set_ylabel("Price", color="tab:blue")
+        ax1.tick_params(axis="y", labelcolor="tab:blue")
+
+        ax2 = ax1.twinx()
+        ax2.plot(price_window.index, positions, color="tab:red", label="position")
+        ax2.axhline(0, color="gray", ls="--", lw=0.8)
+        ax2.set_ylabel("Position", color="tab:red")
+        ax2.tick_params(axis="y", labelcolor="tab:red")
+        fig.tight_layout()
+        fig.legend(loc="upper left", bbox_to_anchor=(0.08, 0.92))
+        plt.title(f"{args.symbol}: price and position overlay")
+        plt.savefig(out_dir / "pred_price_positions.png")
 
     # Plot a simple quantile fan (10/50/90); gracefully fall back to nearest available levels
     requested_levels = [0.1, 0.5, 0.9]

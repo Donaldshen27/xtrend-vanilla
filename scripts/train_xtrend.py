@@ -125,6 +125,8 @@ class XTrendDataset(Dataset):
         self.allow_future_regimes = allow_future_regimes
         if self.cpd_cache_dir:
             self.cpd_cache_dir.mkdir(parents=True, exist_ok=True)
+        # Track whether we've already reported falling back to alternate cache names
+        self._cache_fallback_notice = False
         # Pre-compute date -> index map for reindexing cached regimes
         self._date_to_idx = {pd.Timestamp(date): idx for idx, date in enumerate(self.dates)}
         # Map each symbol to its first real observation index (listing offset)
@@ -214,12 +216,22 @@ class XTrendDataset(Dataset):
                 cache_candidates = []
                 if cache_path:
                     cache_candidates.append(cache_path)
+                if self.allow_future_regimes:
+                    alternate_cache = self._find_alternate_cache(symbol, cache_path)
+                    if alternate_cache:
+                        cache_candidates.append(alternate_cache)
 
                 cached_payload = None
                 for candidate in cache_candidates:
                     if candidate and candidate.exists():
                         cached_payload = self._load_cached_regimes(candidate, symbol)
                         if cached_payload is not None:
+                            if cache_path and candidate != cache_path and not self._cache_fallback_notice:
+                                warnings.warn(
+                                    "CPD cache file span does not match dataset window. "
+                                    f"Using alternate cache '{candidate.name}' for symbol {symbol}."
+                                )
+                                self._cache_fallback_notice = True
                             break
 
                 if cached_payload is not None:
@@ -378,6 +390,27 @@ class XTrendDataset(Dataset):
         )
         filename = f"{symbol}_{token}.pkl"
         return self.cpd_cache_dir / filename
+
+    def _find_alternate_cache(self, symbol: str, primary: Optional[Path]) -> Optional[Path]:
+        """Locate an existing cache file that matches hyperparams but not span.
+
+        This is a pragmatic fallback to reuse precomputed caches when exact
+        span-aligned files are unavailable (e.g., training-only regimes).
+        """
+        if not self.cpd_cache_dir:
+            return None
+        cfg = self.cpd_config
+        pattern = (
+            f"{symbol}_*_lb{cfg.lookback}_"
+            f"th{cfg.threshold:.2f}_"
+            f"min{cfg.min_length}_max{cfg.max_length}.pkl"
+        )
+        matches = sorted(self.cpd_cache_dir.glob(pattern))
+        for candidate in matches:
+            if primary and candidate.resolve() == primary.resolve():
+                continue
+            return candidate
+        return None
 
     def _load_cached_regimes(self, path: Path, symbol: str):
         """Load cached regimes for a symbol."""

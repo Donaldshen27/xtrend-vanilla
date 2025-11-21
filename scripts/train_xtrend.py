@@ -93,6 +93,7 @@ class XTrendDataset(Dataset):
         cpd_cache_dir: Optional[str] = None,
         allow_future_regimes: bool = False,
         allow_cpd_recompute: bool = False,
+        clip_value: float = 20.0,
     ):
         """
         Args:
@@ -112,6 +113,9 @@ class XTrendDataset(Dataset):
                 validation/backtesting to preserve causality.
             allow_cpd_recompute: If False, require cached regimes and fail early
                 when missing; if True, fall back to on-the-fly GP-CPD.
+            clip_value: Clip absolute feature/return magnitudes to this value
+                to guard against data gaps or near-zero prices creating
+                huge normalized returns that explode the loss.
         """
         self.prices = prices
         self.dates = prices.index
@@ -127,6 +131,7 @@ class XTrendDataset(Dataset):
         self.cpd_cache_dir = Path(cpd_cache_dir).expanduser() if cpd_cache_dir else None
         self.allow_future_regimes = allow_future_regimes
         self.allow_cpd_recompute = allow_cpd_recompute
+        self.clip_value = clip_value
         if self.cpd_cache_dir:
             self.cpd_cache_dir.mkdir(parents=True, exist_ok=True)
         # Track whether we've already reported falling back to alternate cache names
@@ -158,6 +163,11 @@ class XTrendDataset(Dataset):
             
             # Compute features (8 features as per paper)
             self.features[symbol] = self._compute_features(price_series)
+            if self.clip_value:
+                self.features[symbol] = self.features[symbol].clip(
+                    lower=-self.clip_value,
+                    upper=self.clip_value
+                )
             feature_tensor = torch.tensor(
                 self.features[symbol].values,
                 dtype=torch.float32
@@ -182,6 +192,11 @@ class XTrendDataset(Dataset):
 
             # Normalize: r_hat[t+1] = r[t+1] / σ[t]
             normalized_rets = daily_rets / sigma_t
+            if self.clip_value:
+                normalized_rets = normalized_rets.clip(
+                    lower=-self.clip_value,
+                    upper=self.clip_value
+                )
             self.returns[symbol] = normalized_rets.fillna(0.0)
             self.return_tensors[symbol] = torch.tensor(
                 self.returns[symbol].values,
@@ -993,6 +1008,9 @@ def main():
     parser.add_argument('--allow-cpd-recompute', action='store_true', default=False,
                        help='If set, recompute GP-CPD on the fly when cache is missing. '
                             'Default: False (require caches for consistency)')
+    parser.add_argument('--return-clip', type=float, default=20.0,
+                       help='Clip absolute normalized returns/features to this value to prevent '
+                            'exploding losses from data gaps or placeholder prices')
     parser.add_argument('--resume', type=str, default=None,
                        help='Resume from checkpoint')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu',
@@ -1049,6 +1067,7 @@ def main():
         seed=args.context_seed,
         cpd_cache_dir=args.cpd_cache_dir if args.cpd_cache_dir else None,
         allow_cpd_recompute=args.allow_cpd_recompute,
+        clip_value=args.return_clip,
     )
 
     print("\nCreating datasets with episodic context sampling...")
@@ -1100,7 +1119,14 @@ def main():
         list(models['cross_attn'].parameters()) +
         list(models['model'].parameters())
     )
-    optimizer = torch.optim.AdamW(all_params, lr=args.lr, weight_decay=1e-5)
+    # Deduplicate shared modules (entity embedding lives in encoder and decoder)
+    unique_params = []
+    seen = set()
+    for p in all_params:
+        if id(p) not in seen:
+            unique_params.append(p)
+            seen.add(id(p))
+    optimizer = torch.optim.AdamW(unique_params, lr=args.lr, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
     # Quantile levels (for XTrendQ)

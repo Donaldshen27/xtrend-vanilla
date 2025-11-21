@@ -40,6 +40,8 @@ def main():
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--symbol", required=True)
     parser.add_argument("--train-cutoff", default="2023-12-29")
+    parser.add_argument("--val-end", default=None, help="Optional end date for validation slice (default: dataset end)")
+    parser.add_argument("--window-days", type=int, default=600, help="Days back from train_cutoff to include (ensures enough samples)")
     parser.add_argument("--data-path", default="data/bloomberg/processed")
     parser.add_argument("--cpd-cache-dir", default="data/bloomberg/cpd_cache")
     parser.add_argument("--batch-size", type=int, default=1)
@@ -62,7 +64,17 @@ def main():
     source = BloombergParquetSource(root_path=args.data_path)
     symbols = source.symbols()
     prices = source.load_prices(symbols, start="1990-01-01", end="2023-12-31")
-    val_prices = prices.loc[args.train_cutoff:]
+    start_date = (torch.tensor([]),)  # placeholder to keep namespace clean
+    start_date = pd.Timestamp(args.train_cutoff) - pd.Timedelta(days=args.window_days)
+    end_date = pd.Timestamp(args.val_end) if args.val_end else prices.index[-1]
+    val_prices = prices.loc[start_date:end_date]
+
+    required_span = args.min_history + args.target_len + 1
+    if len(val_prices) < required_span:
+        raise ValueError(
+            f"Validation window too short: {len(val_prices)} days "
+            f"(need >= {required_span}). Increase --window-days or choose an earlier --train-cutoff."
+        )
 
     cpd_config = CPDConfig(
         lookback=args.cpd_lookback,
@@ -87,6 +99,11 @@ def main():
     )
 
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
+    if len(dataset) == 0:
+        raise ValueError(
+            "No samples generated for the selected window. "
+            "Increase --window-days or relax --min-history/--target-len."
+        )
 
     # Model
     config = ModelConfig(

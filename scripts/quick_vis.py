@@ -58,6 +58,7 @@ def main():
     parser.add_argument("--cpd-max-length", type=int, default=63)
     parser.add_argument("--allow-cpd-recompute", action="store_true")
     parser.add_argument("--plot-price", action="store_true", help="Overlay positions on price series")
+    parser.add_argument("--signal-thresh", type=float, default=0.1, help="Abs(position) threshold for buy/sell markers")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -159,13 +160,25 @@ def main():
     plt.legend(); plt.tight_layout()
     plt.savefig(out_dir / "pred_positions.png")
 
-    # Optionally overlay positions on price
+    # Optionally overlay positions on price, with discrete buy/sell markers
     if args.plot_price:
         # Reconstruct price slice aligned to the target window for this sample
         full_prices = prices[args.symbol]
-        target_start_date = dataset.dates[batch["entity_id"].item()+batch["target_features"].shape[1] - batch["target_features"].shape[1]]
-        # For simplicity, use the last target_len dates from val_prices
         price_window = full_prices.loc[val_prices.index[-len(positions):]]
+
+        # Derive discrete signals from continuous positions
+        sig = []
+        for p in positions:
+            if p > args.signal_thresh:
+                sig.append(1)   # buy/long
+            elif p < -args.signal_thresh:
+                sig.append(-1)  # sell/short
+            else:
+                sig.append(0)   # flat/hold
+
+        # Identify change points to avoid clutter
+        sig_changes = [i for i in range(1, len(sig)) if sig[i] != sig[i-1]]
+
         fig, ax1 = plt.subplots(figsize=(10, 4))
         ax1.plot(price_window.index, price_window.values, color="tab:blue", label="price")
         ax1.set_ylabel("Price", color="tab:blue")
@@ -176,6 +189,31 @@ def main():
         ax2.axhline(0, color="gray", ls="--", lw=0.8)
         ax2.set_ylabel("Position", color="tab:red")
         ax2.tick_params(axis="y", labelcolor="tab:red")
+
+        # Add buy/sell markers where signal changes
+        for i in sig_changes:
+            ts = price_window.index[i]
+            y_price = price_window.iloc[i]
+            if sig[i] == 1:
+                ax1.annotate(
+                    "BUY",
+                    xy=(ts, y_price),
+                    xytext=(0, 12),
+                    textcoords="offset points",
+                    color="green",
+                    ha="center",
+                    arrowprops=dict(arrowstyle="->", color="green", lw=1.2),
+                )
+            elif sig[i] == -1:
+                ax1.annotate(
+                    "SELL",
+                    xy=(ts, y_price),
+                    xytext=(0, -14),
+                    textcoords="offset points",
+                    color="red",
+                    ha="center",
+                    arrowprops=dict(arrowstyle="->", color="red", lw=1.2),
+                )
         fig.tight_layout()
         fig.legend(loc="upper left", bbox_to_anchor=(0.08, 0.92))
         plt.title(f"{args.symbol}: price and position overlay")

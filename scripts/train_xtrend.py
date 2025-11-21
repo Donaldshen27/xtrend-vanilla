@@ -92,6 +92,7 @@ class XTrendDataset(Dataset):
         seed: Optional[int] = None,
         cpd_cache_dir: Optional[str] = None,
         allow_future_regimes: bool = False,
+        allow_cpd_recompute: bool = False,
     ):
         """
         Args:
@@ -109,6 +110,8 @@ class XTrendDataset(Dataset):
             allow_future_regimes: If True, allow context regimes that end after
                 the target date (paper-approved for training); keep False for
                 validation/backtesting to preserve causality.
+            allow_cpd_recompute: If False, require cached regimes and fail early
+                when missing; if True, fall back to on-the-fly GP-CPD.
         """
         self.prices = prices
         self.dates = prices.index
@@ -123,6 +126,7 @@ class XTrendDataset(Dataset):
         self._fallback_warned = False
         self.cpd_cache_dir = Path(cpd_cache_dir).expanduser() if cpd_cache_dir else None
         self.allow_future_regimes = allow_future_regimes
+        self.allow_cpd_recompute = allow_cpd_recompute
         if self.cpd_cache_dir:
             self.cpd_cache_dir.mkdir(parents=True, exist_ok=True)
         # Track whether we've already reported falling back to alternate cache names
@@ -196,6 +200,7 @@ class XTrendDataset(Dataset):
 
         if context_method == "cpd_segmented":
             print("Running GP-CPD segmentation for regime-aware context sampling...")
+            missing_cpd = []
             segmenter = GPCPDSegmenter(self.cpd_config)
             for symbol in tqdm(symbols, desc="Segmenting regimes"):
                 raw_series = prices[symbol]
@@ -212,54 +217,70 @@ class XTrendDataset(Dataset):
                 if price_series.isna().any():
                     price_series = price_series.fillna(method="ffill").fillna(1e-8)
 
-                cache_path = self._regime_cache_path(symbol)
-                cache_candidates = []
-                if cache_path:
-                    cache_candidates.append(cache_path)
-                if self.allow_future_regimes:
-                    alternate_cache = self._find_alternate_cache(symbol, cache_path)
-                    if alternate_cache:
-                        cache_candidates.append(alternate_cache)
+                # Composite cache loading: pick best cache, optionally gap-fill from others
+                cache_candidates = self._list_cache_candidates(symbol)
+                primary_cache = self._select_primary_cache(cache_candidates)
+                extra_caches = [p for p in cache_candidates if p != primary_cache]
 
-                cached_payload = None
-                for candidate in cache_candidates:
-                    if candidate and candidate.exists():
-                        cached_payload = self._load_cached_regimes(candidate, symbol)
-                        if cached_payload is not None:
-                            if cache_path and candidate != cache_path and not self._cache_fallback_notice:
-                                warnings.warn(
-                                    "CPD cache file span does not match dataset window. "
-                                    f"Using alternate cache '{candidate.name}' for symbol {symbol}."
-                                )
-                                self._cache_fallback_notice = True
-                            break
+                aligned_primary = None
+                if primary_cache and primary_cache.exists():
+                    aligned_primary = self._load_and_align_cache(primary_cache, symbol)
 
-                if cached_payload is not None:
-                    self.regimes[symbol] = cached_payload
-                    continue
-                try:
-                    segmented = segmenter.fit_segment(price_series)
-                    # Shift indices back to global calendar so samplers align with features
-                    shifted_segments = [
-                        RegimeSegment(
-                            start_idx=seg.start_idx + listing_offset,
-                            end_idx=seg.end_idx + listing_offset,
-                            severity=seg.severity,
-                            start_date=seg.start_date,
-                            end_date=seg.end_date,
+                aligned_extras = []
+                for path in extra_caches:
+                    aligned = self._load_and_align_cache(path, symbol)
+                    if aligned:
+                        aligned_extras.append(aligned)
+
+                if aligned_primary:
+                    merged = self._merge_gapfill_segments(aligned_primary, aligned_extras)
+                    self.regimes[symbol] = merged
+                    if aligned_extras and not self._cache_fallback_notice:
+                        warnings.warn(
+                            "Using composite CPD caches for symbol "
+                            f"{symbol} (primary: '{primary_cache.name}')."
                         )
-                        for seg in segmented.segments
-                    ]
-                    self.regimes[symbol] = RegimeSegments(
-                        segments=shifted_segments, config=segmented.config
-                    )
-                    if cache_path:
-                        self._save_cached_regimes(cache_path, self.regimes[symbol])
-                except Exception as exc:
-                    warnings.warn(
-                        f"CPD segmentation failed for {symbol}: {exc}. "
-                        "Context sampler will fall back to alternate methods."
-                    )
+                        self._cache_fallback_notice = True
+                    continue
+
+                if self.allow_cpd_recompute:
+                    try:
+                        warnings.warn(
+                            f"No usable CPD cache for {symbol}; recomputing GP-CPD segmentation."
+                        )
+                        segmented = segmenter.fit_segment(price_series)
+                        # Shift indices back to global calendar so samplers align with features
+                        shifted_segments = [
+                            RegimeSegment(
+                                start_idx=seg.start_idx + listing_offset,
+                                end_idx=seg.end_idx + listing_offset,
+                                severity=seg.severity,
+                                start_date=seg.start_date,
+                                end_date=seg.end_date,
+                            )
+                            for seg in segmented.segments
+                        ]
+                        self.regimes[symbol] = RegimeSegments(
+                            segments=shifted_segments, config=segmented.config
+                        )
+                        cache_path = self._regime_cache_path(symbol)
+                        if cache_path:
+                            self._save_cached_regimes(cache_path, self.regimes[symbol])
+                    except Exception as exc:
+                        warnings.warn(
+                            f"CPD segmentation failed for {symbol}: {exc}. "
+                            "Context sampler will fall back to alternate methods."
+                        )
+                else:
+                    missing_cpd.append(symbol)
+
+            if missing_cpd:
+                raise ValueError(
+                    "CPD cache required but missing for symbols: "
+                    f"{missing_cpd}. "
+                    "Run scripts/batch_generate_cpd_cache.py for these symbols "
+                    "or enable --allow-cpd-recompute."
+                )
 
         # Determine fallback order so training never blocks
         ordered_methods = [context_method]
@@ -391,26 +412,109 @@ class XTrendDataset(Dataset):
         filename = f"{symbol}_{token}.pkl"
         return self.cpd_cache_dir / filename
 
-    def _find_alternate_cache(self, symbol: str, primary: Optional[Path]) -> Optional[Path]:
-        """Locate an existing cache file that matches hyperparams but not span.
+    def _parse_cache_dates(self, path: Path) -> tuple[Optional[pd.Timestamp], Optional[pd.Timestamp]]:
+        """Extract start/end dates from a cache filename."""
+        try:
+            tokens = path.stem.split("_")
+            if len(tokens) < 3:
+                return None, None
+            # format: SYMBOL_START_END_LEN_lbXX_thYY_minZZ_maxWW
+            start = pd.Timestamp(tokens[1])
+            end = pd.Timestamp(tokens[2])
+            return start, end
+        except Exception:
+            return None, None
 
-        This is a pragmatic fallback to reuse precomputed caches when exact
-        span-aligned files are unavailable (e.g., training-only regimes).
-        """
+    def _list_cache_candidates(self, symbol: str) -> list[Path]:
+        """Return all cache files matching this symbol/config."""
         if not self.cpd_cache_dir:
-            return None
+            return []
         cfg = self.cpd_config
         pattern = (
             f"{symbol}_*_lb{cfg.lookback}_"
             f"th{cfg.threshold:.2f}_"
             f"min{cfg.min_length}_max{cfg.max_length}.pkl"
         )
-        matches = sorted(self.cpd_cache_dir.glob(pattern))
-        for candidate in matches:
-            if primary and candidate.resolve() == primary.resolve():
-                continue
-            return candidate
-        return None
+        return sorted(self.cpd_cache_dir.glob(pattern))
+
+    def _select_primary_cache(self, candidates: list[Path]) -> Optional[Path]:
+        """Pick the cache that overlaps the dataset and ends closest to dataset_end.
+
+        Priority:
+            1) Any cache with positive date overlap with the dataset
+               (max overlap length, tie-breaker: closest end to dataset_end).
+            2) Otherwise, fallback to cache whose end is nearest (future first).
+        """
+        if not candidates:
+            return None
+
+        dataset_start = self.dates[0]
+        dataset_end = self.dates[-1]
+
+        def overlap_score(path: Path):
+            start, end = self._parse_cache_dates(path)
+            if start is None or end is None:
+                return (-1, pd.Timedelta.max)  # non-overlapping/invalid
+            # overlap length in days
+            overlap_start = max(start, dataset_start)
+            overlap_end = min(end, dataset_end)
+            overlap_days = (overlap_end - overlap_start).days + 1
+            if overlap_days <= 0:
+                return (0, pd.Timedelta.max)
+            # higher overlap wins; smaller end-gap to dataset_end ties
+            return (overlap_days, abs(dataset_end - end))
+
+        # Step 1: pick among overlapping caches
+        overlapping = [c for c in candidates if overlap_score(c)[0] > 0]
+        if overlapping:
+            return max(overlapping, key=lambda p: (overlap_score(p)[0], -overlap_score(p)[1]))
+
+        # Step 2: fallback to nearest end date (prefer future)
+        def nearest_end(path: Path):
+            _, end = self._parse_cache_dates(path)
+            if end is None:
+                return (pd.Timedelta.max, pd.Timedelta.max)
+            if end >= dataset_end:
+                return (end - dataset_end, pd.Timedelta(0))
+            return (pd.Timedelta.max, dataset_end - end)
+
+        return min(candidates, key=nearest_end)
+
+    def _load_and_align_cache(self, path: Path, symbol: str) -> Optional[RegimeSegments]:
+        """Load a cache file and align segments to current dates."""
+        payload = self._load_cached_regimes(path, symbol)
+        if payload is None:
+            return None
+        aligned = self._align_cached_segments(symbol, payload)
+        return aligned
+
+    def _merge_gapfill_segments(self, base: RegimeSegments, extras: list[RegimeSegments]) -> RegimeSegments:
+        """Merge non-overlapping segments, filling gaps only."""
+        merged = list(base.segments)
+        if not merged:
+            # No base; just take the first non-empty extras in order
+            for reg in extras:
+                if reg and reg.segments:
+                    merged = list(reg.segments)
+                    break
+
+        # Track last end date to avoid overlaps
+        last_end = merged[-1].end_date if merged else None
+
+        # Iterate extras sorted by their last segment end date
+        extras_sorted = sorted(
+            [r for r in extras if r and r.segments],
+            key=lambda r: r.segments[-1].end_date
+        )
+        for reg in extras_sorted:
+            for seg in reg.segments:
+                if last_end is not None and seg.start_date <= last_end:
+                    continue  # skip overlaps
+                merged.append(seg)
+                last_end = seg.end_date
+
+        merged.sort(key=lambda s: s.start_date)
+        return RegimeSegments(segments=merged, config=self.cpd_config)
 
     def _load_cached_regimes(self, path: Path, symbol: str):
         """Load cached regimes for a symbol."""
@@ -834,6 +938,10 @@ def validate(models, dataloader, model_type, device, quantile_levels=None):
             total_loss += loss.item()
             num_batches += 1
 
+    # Handle case with no validation samples gracefully
+    if num_batches == 0:
+        return float('nan')
+
     return total_loss / num_batches
 
 
@@ -882,6 +990,9 @@ def main():
                        help='Optional RNG seed for context sampling')
     parser.add_argument('--cpd-cache-dir', type=str, default='data/bloomberg/cpd_cache',
                        help='Directory for caching GP-CPD regimes (set empty to disable)')
+    parser.add_argument('--allow-cpd-recompute', action='store_true', default=False,
+                       help='If set, recompute GP-CPD on the fly when cache is missing. '
+                            'Default: False (require caches for consistency)')
     parser.add_argument('--resume', type=str, default=None,
                        help='Resume from checkpoint')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu',
@@ -899,8 +1010,10 @@ def main():
     symbols = source.symbols()
     print(f"Found {len(symbols)} symbols: {symbols[:10]}...")
 
-    # Load prices - using full backtest period as per paper (1990-2023)
-    prices = source.load_prices(symbols, start='1990-01-01', end='2023-12-31')
+    # Load prices - full period including validation data (1990-2025)
+    # Training uses data up to train_cutoff with lookahead-allowed caches
+    # Validation uses data after train_cutoff with rolling non-lookahead caches
+    prices = source.load_prices(symbols, start='1990-01-01', end='2025-12-31')
     print(f"Loaded prices: {prices.shape}")
 
     # Train/val split (time-based)
@@ -935,6 +1048,7 @@ def main():
         cpd_config=cpd_config,
         seed=args.context_seed,
         cpd_cache_dir=args.cpd_cache_dir if args.cpd_cache_dir else None,
+        allow_cpd_recompute=args.allow_cpd_recompute,
     )
 
     print("\nCreating datasets with episodic context sampling...")

@@ -17,6 +17,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import torch
 from torch.utils.data import DataLoader
+import pandas as pd
 
 from scripts.train_xtrend import (
     XTrendDataset,

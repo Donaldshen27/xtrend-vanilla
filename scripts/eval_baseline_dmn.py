@@ -49,7 +49,7 @@ def main():
     # Load data
     source = BloombergParquetSource(root_path=args.data_path)
     symbols = source.symbols()
-    prices = source.load_prices(symbols, start=args.start-date, end="2025-12-31")
+    prices = source.load_prices(symbols, start=args.start_date, end="2025-12-31")
     dataset_start, dataset_end = prices.index[0], prices.index[-1]
 
     coverage_start = pd.Timestamp(args.start_date)
@@ -130,4 +130,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
